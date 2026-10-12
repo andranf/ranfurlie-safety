@@ -301,6 +301,15 @@
   var easyCache = {};
   var mode = 'auto';
 
+  // Swap in a brand-new iframe: its first load replaces the blank page instead of adding a
+  // browser history entry, so the back arrow (and the phone's Back gesture) still closes the viewer.
+  function freshFrame(id) {
+    var old = $(id), f = old.cloneNode(false);
+    f.removeAttribute('src'); f.removeAttribute('srcdoc'); f.removeAttribute('data-key');
+    old.parentNode.replaceChild(f, old);
+    return f;
+  }
+
   function preferEasy() {
     if (mode !== 'auto') return mode === 'easy';
     return window.innerWidth <= 760;
@@ -348,10 +357,10 @@
     meta.textContent = d.code + ' · v' + d.version + ' ';
     var rk = document.createElement('span'); rk.className = 'rk ' + d.risk; rk.textContent = d.risk + ' risk';
     meta.appendChild(rk);
-    $('vFrame').src = d.preview;
+    freshFrame('vFrame').src = d.preview;
     $('vOpen').href = d.open || d.preview;
     $('vModes').hidden = true;
-    $('vEasy').hidden = true;
+    freshFrame('vEasy').hidden = true;
     $('vFrame').hidden = preferEasy();
     $('viewer').hidden = false;
     document.body.style.overflow = 'hidden';
@@ -418,7 +427,8 @@
     stopTimer();
     $('viewer').hidden = true;
     $('viewer').classList.remove('signing');
-    $('vFrame').src = 'about:blank';
+    freshFrame('vFrame');
+    freshFrame('vEasy').hidden = true;
     document.body.style.overflow = '';
     current = null;
   }
