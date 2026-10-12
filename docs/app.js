@@ -13,11 +13,9 @@
     };
   }
   var local = safe('localStorage');
-  var session = safe('sessionStorage');
 
   var lib = null;      // { docs, staff, categories, declaration }
   var me = null;       // { name, items, counts }
-  var pin = null;
   var tab = 'mine';
   var browsing = false;
   var current = null;  // doc open in the viewer
@@ -62,19 +60,33 @@
       lib = res;
       $('foot').textContent = 'Signed records go to the course maintenance safety register. Questions about a procedure? Ask your supervisor before you start the job.';
       fillNames();
-      var saved = parseJSON(session.get('rs_auth'));
-      if (saved && saved.name && saved.pin) {
-        pin = saved.pin;
-        return post({ action: 'me', name: saved.name, pin: saved.pin }).then(function (r) {
-          if (r.needPin) throw new Error('pin');
-          setMe(r);
-          showDash();
-        }).catch(function () { session.del('rs_auth'); showSignin(); });
+      // Personal link from a Slack reminder (?u=...) signs you straight in and is remembered.
+      var m = /[?&]u=([0-9a-f]{6,20})/i.exec(location.search);
+      if (m) {
+        return signIn({ action: 'me', u: m[1].toLowerCase() }).then(function () {
+          try { history.replaceState({}, '', location.pathname); } catch (e) {}
+        }).catch(function (x) {
+          showSignin();
+          $('signinErr').textContent = x.message;
+        });
+      }
+      var last = local.get('rs_name');
+      if (last && lib.staff.indexOf(last) >= 0) {
+        return signIn({ action: 'me', name: last }).catch(function () { local.del('rs_name'); showSignin(); });
       }
       showSignin();
     }).then(openFromUrl).catch(function (e) {
       $('foot').textContent = '';
       notice('Could not load the documents (' + e.message + '). Check your signal and refresh.');
+    });
+  }
+
+  function signIn(body) {
+    return post(body).then(function (r) {
+      local.set('rs_name', r.name);
+      browsing = false;
+      setMe(r);
+      showDash();
     });
   }
 
@@ -103,18 +115,9 @@
     $('signin').hidden = false;
     $('dash').hidden = true;
     $('who').hidden = true;
-    resetPinUI();
-  }
-
-  function resetPinUI() {
-    $('pinBlock').hidden = false;
-    $('newPinBlock').hidden = true;
-    $('pin').value = ''; $('newPin').value = ''; $('newPin2').value = '';
     $('signinErr').textContent = '';
     $('signinBtn').textContent = 'Continue';
   }
-
-  $('nameSel').addEventListener('change', resetPinUI);
 
   $('signinForm').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -122,40 +125,13 @@
     var err = $('signinErr');
     err.textContent = '';
     if (!name) { err.textContent = 'Choose your name.'; return; }
-    var creating = !$('newPinBlock').hidden;
-    var body = { action: 'me', name: name };
-    if (creating) {
-      var a = $('newPin').value.trim(), b = $('newPin2').value.trim();
-      if (!/^\d{4}$/.test(a)) { err.textContent = 'Your PIN needs to be 4 numbers.'; return; }
-      if (a !== b) { err.textContent = "The two PINs don't match."; return; }
-      body.newPin = a;
-    } else {
-      var p = $('pin').value.trim();
-      if (p && !/^\d{4}$/.test(p)) { err.textContent = 'Your PIN is 4 numbers.'; return; }
-      body.pin = p;
-    }
     var btn = $('signinBtn');
-    btn.disabled = true; btn.textContent = 'Checking…';
-    post(body).then(function (r) {
-      if (r.needPin) {
-        $('pinBlock').hidden = true;
-        $('newPinBlock').hidden = false;
-        $('signinBtn').textContent = 'Create PIN';
-        $('newPin').focus();
-        return;
-      }
-      pin = body.newPin || body.pin;
-      local.set('rs_name', r.name);
-      session.set('rs_auth', JSON.stringify({ name: r.name, pin: pin }));
-      browsing = false;
-      setMe(r);
-      showDash();
-      openFromUrl();
-    }).catch(function (x) {
+    btn.disabled = true; btn.textContent = 'Loading…';
+    signIn({ action: 'me', name: name }).then(openFromUrl).catch(function (x) {
       err.textContent = x.message;
     }).then(function () {
       btn.disabled = false;
-      if (btn.textContent === 'Checking…') btn.textContent = $('newPinBlock').hidden ? 'Continue' : 'Create PIN';
+      btn.textContent = 'Continue';
     });
   });
 
@@ -166,9 +142,8 @@
   });
 
   $('signOut').addEventListener('click', function () {
-    session.del('rs_auth');
     local.del('rs_name');
-    me = null; pin = null;
+    me = null;
     location.href = location.pathname;
   });
 
@@ -177,8 +152,8 @@
   }
 
   function refreshMe() {
-    if (!me || !pin) return Promise.resolve();
-    return post({ action: 'me', name: me.name, pin: pin }).then(function (r) { setMe(r); render(); }).catch(function () {});
+    if (!me) return Promise.resolve();
+    return post({ action: 'me', name: me.name }).then(function (r) { setMe(r); render(); }).catch(function () {});
   }
 
   /* ---------------------------------------------------------- list */
@@ -313,7 +288,7 @@
     $('vErr').textContent = '';
     $('vDeclare').checked = false;
     $('vDeclText').textContent = lib.declaration;
-    var signable = !!(me && pin);
+    var signable = !!me;
     $('vNeedSignin').hidden = signable;
     $('vTimer').hidden = !signable;
     $('vForm').hidden = true;
@@ -369,7 +344,7 @@
     btn.disabled = true; btn.textContent = 'Signing…';
     $('vErr').textContent = '';
     post({
-      action: 'sign', name: me.name, pin: pin, code: d.code, version: d.version,
+      action: 'sign', name: me.name, code: d.code, version: d.version,
       readSeconds: Math.round((Date.now() - openedAt) / 1000), declare: true,
       signature: exportSig(), ua: navigator.userAgent
     }).then(function (r) {

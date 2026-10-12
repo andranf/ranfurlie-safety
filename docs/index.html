@@ -34,22 +34,11 @@
     <section id="notice" class="notice" hidden></section>
 
     <section id="signin" class="card signin" hidden>
-      <h1>Read and sign</h1>
-      <p class="muted">Pick your name, enter your 4-digit PIN, then open each document on your list, read it and sign.</p>
+      <h1>Who are you?</h1>
+      <p class="muted">Pick your name, then open each document on your list, read it and sign. This phone will remember you next time.</p>
       <form id="signinForm" autocomplete="off">
         <label for="nameSel">Your name</label>
         <select id="nameSel" required><option value="">Choose…</option></select>
-        <div id="pinBlock">
-          <label for="pin">PIN</label>
-          <input id="pin" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="••••">
-        </div>
-        <div id="newPinBlock" hidden>
-          <p class="hint">First time here — create a 4-digit PIN. You'll use it every time you sign.</p>
-          <label for="newPin">New PIN</label>
-          <input id="newPin" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="••••">
-          <label for="newPin2">Repeat PIN</label>
-          <input id="newPin2" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="••••">
-        </div>
         <p id="signinErr" class="err" role="alert"></p>
         <button class="btn primary" id="signinBtn" type="submit">Continue</button>
       </form>
