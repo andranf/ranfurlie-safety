@@ -13,7 +13,7 @@
  *   - Every 10 min: picks up files dropped into the Drive Library folder, gives them a code,
  *     shares them view-only by link, bumps the version when a file changes, rebuilds the
  *     Matrix tab and the dashboard data files.
- *   - Web API for the staff page: library list, sign-in with 4-digit PIN, sign a document
+ *   - Web API for the staff page: library list, sign-in by name or personal link, sign a document
  *     (drawn signature saved to the private Signatures folder, row added to Register).
  *   - 7am on reminder days: tags staff in Slack (incoming webhook) when sign-offs are due or overdue.
  */
@@ -63,11 +63,11 @@ const SEED_SETTINGS = [
   ['REMIND_REPEAT_DAYS', 7, 'Re-tag while still outstanding (and straight away when something goes overdue)'],
   ['REMIND_ON_DAYS', 'Mon,Tue,Wed,Thu,Fri', 'Days reminders can post (7am)'],
   ['RESIGN_ON_UPDATE', 'TRUE', 'When a document file is updated, everyone re-signs the new version'],
-  ['PIN_SALT', '', 'Do not change - protects staff PINs (filled in by setup)']
+  ['PIN_SALT', '', 'Do not change - makes each person\'s personal link (filled in by setup)']
 ];
 
 const SEED_STAFF = [
-  ['Andy Anderson', 'U06BCCG4HT9', 'Course Superintendent', 'Ranfurlie / Amstel', 'All, Crew, Spray, Plant, Chainsaw', '', true, '', ''],
+  ['Andrew Anderson', 'U06BCCG4HT9', 'Course Superintendent', 'Ranfurlie / Amstel', 'All, Crew, Spray, Plant, Chainsaw', '', true, '', ''],
   ['Ben Hartley', 'U06NBNSR9LG', 'Course Operations', 'Ranfurlie / Amstel', 'All, Crew, Spray, Plant, Chainsaw, Workshop', '', true, '', ''],
   ['Neil Harper', 'U06FJ0J1RH8', 'Crew Lead', 'Ranfurlie', 'All, Crew, Spray, Plant, Chainsaw', '', true, '', ''],
   ['Kyle Craig', 'U06FWK6ND5X', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
@@ -144,7 +144,7 @@ const README_LINES = [
   'Applies to: All = every active staff member. Otherwise it matches the Groups on the Staff tab: Crew, Spray, Plant, Chainsaw, Workshop. Use commas for more than one.',
   'Retire a document: set Status to Retired. It drops off the staff page and nobody is chased for it.',
   'New staff: add a row on the Staff tab with their Slack ID, Groups, Active = TRUE and a Start date. Their first due dates count from the start date.',
-  'PINs: staff create their own 4-digit PIN the first time they sign in. To reset one, clear their PIN cell. You can also type a 4-digit PIN in yourself - it is protected the next time they sign in.',
+  'Signing in: no PIN. Staff pick their name once and their phone remembers them. Each Slack reminder carries their own link that opens straight to their list. Every signature records the drawn signature, time, read time and device.',
   'Reminders: 7am on the days in Settings. Staff are tagged in Slack from 14 days before a sign-off falls due, weekly while it is outstanding, and straight away when it goes overdue.',
   'Matrix: rebuilt automatically. Green = current, amber = due soon or still to sign, red = overdue, grey = not required.',
   "Manual runs: open the 'Ranfurlie Safety' Apps Script project and run syncNow, previewReminders or sendRemindersNow (results show in the execution log)."
@@ -197,6 +197,12 @@ function ensureSheets_() {
     let sh = ss.getSheetByName(name);
     if (!sh) sh = ss.insertSheet(name, i);
     const empty = sh.getLastRow() === 0;
+    if (name === TAB.README && !empty) {
+      sh.clear();
+      sh.getRange(1, 1, README_LINES.length, 1).setValues(README_LINES.map(l => [l])).setWrap(true).setVerticalAlignment('top');
+      sh.getRange(1, 1).setFontSize(14).setFontWeight('bold').setFontColor('#1F4D3A');
+      return;
+    }
     if (HEAD[name] && empty) {
       sh.getRange(1, 1, 1, HEAD[name].length).setValues([HEAD[name]]);
       styleHeader_(sh, HEAD[name].length);
@@ -310,9 +316,8 @@ function library_() {
 
 function me_(b) {
   const ctx = context_();
-  const a = auth_(ctx, b.name, b.pin, b.newPin);
-  if (a.needPin) return { ok: true, needPin: true, name: String(a.staff.Name).trim() };
-  return Object.assign({ ok: true, name: String(a.staff.Name).trim(), pinSet: !!a.pinSet }, myItems_(ctx, a.staff));
+  const st = who_(ctx, b);
+  return Object.assign({ ok: true, name: String(st.Name).trim(), link: personalLink_(st, ctx.s) }, myItems_(ctx, st));
 }
 
 function myItems_(ctx, st) {
@@ -337,9 +342,7 @@ function sign_(b) {
   lock.waitLock(25000);
   try {
     const ctx = context_();
-    const a = auth_(ctx, b.name, b.pin);
-    if (a.needPin) throw new Error('Create your PIN first.');
-    const st = a.staff;
+    const st = who_(ctx, b);
     const doc = ctx.docs.find(d => String(d.Code).trim() === String(b.code || '').trim() && isLive_(d));
     if (!doc) throw new Error('That document is no longer available. Reload the page.');
     const ver = num_(doc.Version, 1);
@@ -369,40 +372,22 @@ function sign_(b) {
   }
 }
 
-function auth_(ctx, name, pin, newPin) {
-  const n = norm_(name);
-  const st = ctx.staff.find(r => norm_(r.Name) === n && isActive_(r));
-  if (!st) throw new Error('Name not found - see your supervisor.');
-  const cache = CacheService.getScriptCache();
-  const failKey = 'fail:' + n;
-  const fails = Number(cache.get(failKey) || 0);
-  if (fails >= 5) throw new Error('Too many wrong PINs. Wait 15 minutes or ask your supervisor to reset it.');
-  let stored = String(st.PIN === null || st.PIN === undefined ? '' : st.PIN).trim();
-  if (/^\d{1,4}$/.test(stored)) stored = ('0000' + stored).slice(-4);
-  if (!stored) {
-    if (!/^\d{4}$/.test(String(newPin || ''))) return { needPin: true, staff: st };
-    setPin_(st, String(newPin), ctx.s);
-    return { staff: st, pinSet: true };
-  }
-  const p = String(pin || '').trim();
-  if (!/^\d{4}$/.test(p)) throw new Error('Enter your 4-digit PIN.');
-  const ok = stored.indexOf('h:') === 0 ? stored === pinHash_(st.Name, p, ctx.s) : stored === p;
-  if (!ok) {
-    cache.put(failKey, String(fails + 1), 900);
-    throw new Error("PIN doesn't match." + (fails >= 3 ? ' One more wrong try locks it for 15 minutes.' : ''));
-  }
-  if (stored.indexOf('h:') !== 0) setPin_(st, p, ctx.s);
-  cache.remove(failKey);
-  return { staff: st };
+// No PIN: staff pick their name (remembered on their phone) or open their personal link from Slack.
+function who_(ctx, b) {
+  const tok = String(b.u || '').trim().toLowerCase();
+  const n = norm_(b.name);
+  const st = ctx.staff.find(r => isActive_(r) && (tok ? token_(r.Name, ctx.s) === tok : norm_(r.Name) === n));
+  if (!st) throw new Error(tok ? 'This link is out of date - pick your name instead.' : 'Name not found - see your supervisor.');
+  return st;
 }
 
-function setPin_(st, pin, s) {
-  const t = read_(TAB.STAFF);
-  t.sh.getRange(st._row, t.col('PIN')).setNumberFormat('@').setValue(pinHash_(st.Name, pin, s));
+function token_(name, s) {
+  return sha_(norm_(name) + '|link|' + String(s.PIN_SALT || '')).slice(0, 10);
 }
 
-function pinHash_(name, pin, s) {
-  return 'h:' + sha_(norm_(name) + '|' + pin + '|' + String(s.PIN_SALT || '')).slice(0, 32);
+function personalLink_(st, s) {
+  const base = String(s.SITE_URL || '').trim();
+  return base ? base + (base.indexOf('?') >= 0 ? '&' : '?') + 'u=' + token_(st.Name, s) : '';
 }
 
 /* -------------------------------------------------------------- status */
@@ -799,12 +784,13 @@ function remind_(opt) {
     const parts = [];
     if (od.length) parts.push(od.length + ' overdue: ' + titles_(od));
     if (due.length) parts.push(due.length + ' due, first by ' + nice_(due[0].due) + (od.length ? '' : ': ' + titles_(due)));
-    lines.push('• ' + (slack ? '<@' + slack + '>' : '*' + name + '*') + ' - ' + parts.join(' · '));
+    const link = personalLink_(st, s);
+    lines.push('• ' + (slack ? '<@' + slack + '>' : '*' + name + '*') + ' - ' + parts.join(' · ') + (link ? ' - <' + link + '|open your list>' : ''));
     log.push([new Date(), name, slack, od.length, due.length, list.map(i => (i.status === 'Overdue' ? '!' : '') + String(i.doc.Code).trim()).join(' ')]);
   });
 
   if (!lines.length) return { message: 'Nobody needs a reminder today.', text: '' };
-  const text = ':clipboard: *Safety sign-offs due*\n' + lines.join('\n') + '\nRead and sign: ' + String(s.SITE_URL || '').trim();
+  const text = ':clipboard: *Safety sign-offs due*\n' + lines.join('\n') + '\nTap your link, read each document and sign. All documents: ' + String(s.SITE_URL || '').trim();
   if (opt.dryRun) return { message: 'Preview only.', text };
 
   const hook = String(s.SLACK_WEBHOOK_URL || '').trim();
