@@ -23,13 +23,14 @@ const SHEET_ID = '1VFFfJz8YBAOjSDBJ2odzth0TTt0NODHoyzJzMbCSksE';
 let BOOK_ = null;
 function book_() { return BOOK_ || (BOOK_ = SpreadsheetApp.openById(SHEET_ID)); }
 const TAB = {
-  MATRIX: 'Matrix', REGISTER: 'Register', STAFF: 'Staff', DOCS: 'Documents',
+  MATRIX: 'Matrix', REGISTER: 'Register', STAFF: 'Staff', DOCS: 'Documents', QUIZ: 'Questions',
   REMINDERS: 'Reminders', SETTINGS: 'Settings', README: 'Read me'
 };
 const HEAD = {
-  Register: ['Signed at', 'Receipt', 'Staff', 'Code', 'Document', 'Version', 'Risk', 'Valid until', 'Read time (sec)', 'Signature', 'Declaration', 'Device'],
+  Register: ['Signed at', 'Receipt', 'Staff', 'Code', 'Document', 'Version', 'Risk', 'Valid until', 'Read time (sec)', 'Signature', 'Declaration', 'Device', 'Knowledge check'],
   Staff: ['Name', 'Slack ID', 'Role', 'Site', 'Groups', 'PIN', 'Active', 'Start date', 'Notes'],
   Documents: ['Code', 'Title', 'Category', 'Risk', 'Applies to', 'Renew (months)', 'Read time (sec)', 'Summary', 'Status', 'Version', 'Updated', 'File ID', 'File name', 'Link', 'Added', 'Notes'],
+  Questions: ['Code', 'No.', 'Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Answer', 'Why'],
   Reminders: ['Sent at', 'Staff', 'Slack ID', 'Overdue', 'Due', 'Codes'],
   Settings: ['Key', 'Value', 'What it does']
 };
@@ -119,7 +120,7 @@ const SEED_DOCS = [
   ['OHS-29', 'Towing & Trailers', 'Medium', 'Crew', 'Hitching, safety chains, load limits, tipping trailers and reversing with a trailer.'],
   ['OHS-30', 'Irrigation - Pressurised Lines & Pump Station', 'Medium', 'Crew', 'Isolating and depressurising before repairs, pump station hazards and high-pressure water.'],
   ['OHS-31', 'Fit for Work - Fatigue, Drugs & Alcohol', 'Low', 'All', 'Turning up fit for work, fatigue, medication and the drug and alcohol rules.'],
-  ['OHS-32', 'Workplace Behaviour - Bullying & Harassment', 'Low', 'All', "Expected behaviour, what isn't acceptable and how to raise a concern."],
+  ['OHS-32', 'Bullying, Harassment & Discrimination', 'Medium', 'All', 'What bullying, sexual harassment, discrimination and victimisation are, how to report, and what happens next. Includes a knowledge check.'],
   ['OHS-33', 'Asbestos Awareness', 'Low', 'All', 'Where asbestos may be found in older buildings and what to do if you suspect it.'],
   ['CHM-01', 'Pesticide Mixing, Loading & Application', 'High', 'Spray', 'Reading the label, PPE, mixing and filling, application, wash-down and records.'],
   ['CHM-02', 'Respirators - Fit, Seal Check & Cartridges', 'High', 'Spray', 'Fit and seal checks every time, cartridge types and change-out, cleaning and storage.'],
@@ -135,6 +136,83 @@ const SEED_DOCS = [
   ['WKS-06', 'Wash Bay & Pressure Washer', 'Low', 'Crew', 'Washing down machines safely: electrics, slips, eye protection and wash water.']
 ];
 
+// Knowledge checks: code, no., question, options A-D, answer letter, why (shown after answering).
+// Staff answer every question correctly (wrong ones come back round) before they can sign.
+const SEED_QUESTIONS = [
+  ['OHS-32', 1, 'Which of these is workplace bullying?',
+    'Your supervisor tells you your bunker edges are not up to standard and shows you how to fix them',
+    'A leading hand mocks a greenkeeper in front of the crew most days and keeps giving him the worst jobs as payback',
+    'You are rostered on for a weekend under the fair rotation',
+    'A one-off disagreement about which mowing pattern to use',
+    'B', 'Bullying is repeated, unreasonable behaviour that creates a risk to health and safety. Fair feedback, fair rostering and one-off disagreements are not bullying.'],
+  ['OHS-32', 2, 'Someone posts a crude sexual meme in the crew group chat. Nobody complains. Is that OK?',
+    'Yes - nobody complained',
+    'Yes - it was not aimed at anyone in particular',
+    'No - it can be sexual harassment or create a hostile workplace, even if it is not aimed at anyone and nobody complains',
+    'It is only a problem if it is posted during work hours',
+    'C', 'Work group chats are part of the workplace, day or night. People often stay quiet because they feel they cannot object.'],
+  ['OHS-32', 3, 'Does sexual harassment have to happen more than once before it counts?',
+    'Yes - it has to be a pattern',
+    'No - a single incident can be sexual harassment',
+    'Only if the person said "stop" the first time',
+    'Only if it is physical',
+    'B', 'Unlike bullying, one incident is enough. It does not have to be physical, and the person does not have to have said stop.'],
+  ['OHS-32', 4, 'While you are raking a bunker, a golfer swears at you and hits a ball towards you. What should you do?',
+    'Shout back so they know they cannot treat you like that',
+    'Ignore it - dealing with golfers is part of the job',
+    'Get to safety, radio or phone your supervisor, note the time, hole and a description, and report it',
+    'Wait and confront them on the next tee',
+    'C', 'Abuse and aggression from golfers or members is never part of the job. Get safe, do not escalate, and report it so the Club can follow up.'],
+  ['OHS-32', 5, 'After Tom reports a leading hand, the crew stops including him at smoko and he gets every 5am bunker job. What is this?',
+    'Reasonable management action',
+    'Normal crew dynamics',
+    'Victimisation - which is against the law',
+    'Mediation',
+    'C', 'Treating someone badly because they made a complaint is victimisation. It is unlawful and treated as serious misconduct.'],
+  ['OHS-32', 6, 'Which of these is reasonable management action, and NOT bullying?',
+    'A supervisor privately raises repeated missed pre-start checks, explains the standard and agrees a plan in writing',
+    'A supervisor calls someone "useless" over the radio',
+    'A supervisor cuts someone\'s overtime because they complained',
+    'A supervisor keeps changing someone\'s tasks so they fail',
+    'A', 'Feedback and performance management are fine when they are done fairly and respectfully - in private, specific, and with support.'],
+  ['OHS-32', 7, 'You see a co-worker cornering an apprentice in the shed and commenting on her body. She looks uncomfortable. What is a good response?',
+    'Stay out of it - it is not your business',
+    'Interrupt safely (e.g. "Can you give me a hand with the trailer?"), check she is OK afterwards, and report it or help her report it',
+    'Film it and post it in the group chat',
+    'Wait and see if it happens again',
+    'B', 'Bystanders can stop harassment. Use the 5 Ds - direct, distract, delegate, delay, document - and only act if it is safe.'],
+  ['OHS-32', 8, 'Who can you report bullying or harassment to?',
+    'Only your direct supervisor',
+    'Only the police',
+    'Your supervisor, any manager you trust or senior management - or straight to an outside agency like WorkSafe or a human rights commission',
+    'Nobody, unless you have a witness',
+    'C', 'You can use any of these. You do not need proof or witnesses, and if the problem is your supervisor, go around them.'],
+  ['OHS-32', 9, 'A new apprentice is sent to the shop for "a long weight", filmed, and the video is shared in the crew chat. The jokes go on for weeks. What is this?',
+    'A harmless tradition',
+    'Fine, as long as the apprentice laughs along',
+    'Hazing that can be bullying - it is not allowed here',
+    'OK, as long as nobody films it',
+    'C', 'Initiations and pranks on new starters are banned. Repeated humiliation of a junior worker is bullying, and laughing along does not mean they are OK with it.'],
+  ['OHS-32', 10, 'At the end-of-season function at the pub, after hours, a staff member keeps touching a colleague after she moves away. Does this policy apply?',
+    'No - it is after hours',
+    'No - it is not at the Club',
+    'Yes - work functions are covered, and this is sexual harassment',
+    'Only if a manager saw it',
+    'C', 'Anything connected to work is covered, including functions, travel and group chats. Unwelcome touching is sexual harassment and can be a crime.'],
+  ['OHS-32', 11, 'After a greenkeeper tells her supervisor she is pregnant, he takes her off spraying and overtime "for her own good" without talking to her. What is the issue?',
+    'Nothing - he is being considerate',
+    'It may be pregnancy discrimination - he should talk with her, assess the real risks (like chemical exposure) and agree any changes together',
+    'It is reasonable management action, so there is no issue',
+    'It is only an issue if she complains',
+    'B', 'Decisions based on assumptions about pregnancy can be discrimination. Real safety risks are assessed and managed with the worker, not decided for her.'],
+  ['OHS-32', 12, 'A complaint is investigated but cannot be proven. What does that mean?',
+    'The complaint was false and the person who made it should be disciplined',
+    'Not proven is not the same as false - only complaints made knowing they are untrue are misconduct',
+    'The person complained about can now take action against the person who complained',
+    'The person who complained cannot report again',
+    'B', 'Genuine complaints are protected even if they cannot be proven. Payback against the person who complained would be victimisation.']
+];
+
 const README_LINES = [
   'Ranfurlie Safety Register',
   '',
@@ -143,6 +221,7 @@ const README_LINES = [
   'Updating a document: upload a new version over the old file in Drive (Manage versions), or upload a new file starting with the same code. Everyone re-signs the new version.',
   "Risk: High / Medium / Low sets how often it is re-signed (Settings: 6 / 12 / 24 months) and how long it must be open before signing. Override one document with 'Renew (months)' or 'Read time (sec)'.",
   'Applies to: All = every active staff member. Otherwise it matches the Groups on the Staff tab: Crew, Spray, Plant, Chainsaw, Workshop. Use commas for more than one.',
+  "Knowledge checks: add questions on the Questions tab (one row per question: the document Code, No., the question, up to four options, the Answer letter and a short 'Why'). Staff must answer every question correctly - wrong ones come back round with the explanation - before they can sign. The Register's 'Knowledge check' column shows how many they got right first time.",
   'Retire a document: set Status to Retired. It drops off the staff page and nobody is chased for it.',
   'New staff: add a row on the Staff tab with their Slack ID, Groups, Active = TRUE and a Start date. Their first due dates count from the start date.',
   'Signing in: no PIN. Staff pick their name once and their phone remembers them. Each Slack reminder carries their own link that opens straight to their list. Every signature records the drawn signature, time, read time and device.',
@@ -193,7 +272,7 @@ function setup() {
 
 function ensureSheets_() {
   const ss = book_();
-  const order = [TAB.MATRIX, TAB.REGISTER, TAB.STAFF, TAB.DOCS, TAB.REMINDERS, TAB.SETTINGS, TAB.README];
+  const order = [TAB.MATRIX, TAB.REGISTER, TAB.STAFF, TAB.DOCS, TAB.QUIZ, TAB.REMINDERS, TAB.SETTINGS, TAB.README];
   order.forEach((name, i) => {
     let sh = ss.getSheetByName(name);
     if (!sh) sh = ss.insertSheet(name, i);
@@ -208,7 +287,14 @@ function ensureSheets_() {
       sh.getRange(1, 1, 1, HEAD[name].length).setValues([HEAD[name]]);
       styleHeader_(sh, HEAD[name].length);
     }
+    if (HEAD[name] && !empty) HEAD[name].forEach(h => ensureColumn_(sh, h));   // add any new columns to existing tabs
     if (!empty) return;
+    if (name === TAB.QUIZ) {
+      sh.getRange(2, 1, SEED_QUESTIONS.length, SEED_QUESTIONS[0].length).setValues(SEED_QUESTIONS);
+      sh.getRange(2, 1, 500, HEAD.Questions.length).setWrap(true).setVerticalAlignment('top');
+      sh.getRange(2, 8, 500, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['A', 'B', 'C', 'D'], true).build()).setHorizontalAlignment('center');
+      [70, 45, 330, 210, 210, 210, 210, 70, 360].forEach((w, j) => sh.setColumnWidth(j + 1, w));
+    }
     if (name === TAB.SETTINGS) {
       sh.getRange(2, 2, SEED_SETTINGS.length, 1).setNumberFormat('@');
       sh.getRange(2, 1, SEED_SETTINGS.length, 3).setValues(SEED_SETTINGS.map(r => [r[0], String(r[1]), r[2]]));
@@ -251,6 +337,16 @@ function ensureSheets_() {
   });
   const stray = ss.getSheetByName('Sheet1');
   if (stray && ss.getSheets().length > 1 && stray.getLastRow() === 0) ss.deleteSheet(stray);
+}
+
+function ensureColumn_(sh, name) {
+  const n = Math.max(1, sh.getLastColumn());
+  const have = sh.getRange(1, 1, 1, n).getValues()[0].map(h => String(h).trim());
+  if (have.indexOf(name) >= 0) return have.indexOf(name) + 1;
+  const col = have[n - 1] === '' && n === 1 ? 1 : n + 1;
+  sh.getRange(1, col).setValue(name);
+  styleHeader_(sh, col);
+  return col;
 }
 
 function styleHeader_(sh, n) {
@@ -296,6 +392,8 @@ function library_() {
   const hit = cache.get('library');
   if (hit) return JSON.parse(hit);
   const s = settings_();
+  let quiz = {};
+  try { quiz = quizzes_(); } catch (e) { console.warn('questions: ' + e); }
   const docs = read_(TAB.DOCS).rows.filter(isLive_).map(d => ({
     code: String(d.Code).trim(),
     title: String(d.Title).trim(),
@@ -308,7 +406,8 @@ function library_() {
     renewMonths: renewMonths_(d, s),
     preview: previewUrl_(d),
     open: String(d.Link || ''),
-    updated: toKey_(d.Updated)
+    updated: toKey_(d.Updated),
+    quiz: quiz[String(d.Code).trim().toUpperCase()] || undefined
   })).sort(byCategoryThenCode_);
   const staff = read_(TAB.STAFF).rows.filter(isActive_).map(r => String(r.Name).trim()).sort();
   const out = { ok: true, docs, staff, categories: CATEGORIES, declaration: DECLARATION, generated: new Date().toISOString() };
@@ -355,20 +454,26 @@ function sign_(b) {
     if (b.declare !== true) throw new Error('Tick the declaration to sign.');
     const m = String(b.signature || '').match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
     if (!m || m[1].length < 200 || m[1].length > 600000) throw new Error('Please draw your signature.');
-
-    const now = new Date();
     const name = String(st.Name).trim();
     const code = String(doc.Code).trim();
+    const check = knowledgeCheck_(code, b);
+
+    const now = new Date();
     const fileName = Utilities.formatDate(now, TZ, 'yyyy-MM-dd HHmm') + ' ' + name + ' ' + code + ' v' + ver + '.png';
     const file = DriveApp.getFolderById(ctx.s.SIGNATURE_FOLDER_ID).createFile(Utilities.newBlob(Utilities.base64Decode(m[1]), 'image/png', fileName));
     const until = addMonths_(dayKey_(now), renewMonths_(doc, ctx.s));
     const receipt = 'RGC-' + Utilities.formatDate(now, TZ, 'yyMMdd') + '-' + sha_(name + '|' + code + '|' + ver + '|' + now.getTime()).slice(0, 6).toUpperCase();
-    sheet_(TAB.REGISTER).appendRow([
-      now, receipt, name, code, String(doc.Title).trim(), ver, riskOf_(doc), until, readSecs,
-      '=HYPERLINK("' + file.getUrl() + '","View")', DECLARATION, String(b.ua || '').slice(0, 160)
-    ]);
+    const reg = sheet_(TAB.REGISTER);
+    if (check) ensureColumn_(reg, 'Knowledge check');
+    const head = reg.getRange(1, 1, 1, reg.getLastColumn()).getValues()[0].map(h => String(h).trim());
+    const row = {
+      'Signed at': now, 'Receipt': receipt, 'Staff': name, 'Code': code, 'Document': String(doc.Title).trim(), 'Version': ver,
+      'Risk': riskOf_(doc), 'Valid until': until, 'Read time (sec)': readSecs, 'Signature': '=HYPERLINK("' + file.getUrl() + '","View")',
+      'Declaration': DECLARATION, 'Device': String(b.ua || '').slice(0, 160), 'Knowledge check': check
+    };
+    reg.appendRow(head.map(h => (h in row ? row[h] : '')));
     PropertiesService.getScriptProperties().setProperty('dirty', '1');
-    return { ok: true, receipt, code, signedAt: Utilities.formatDate(now, TZ, 'd MMM yyyy, h:mm a'), validUntil: until };
+    return { ok: true, receipt, code, signedAt: Utilities.formatDate(now, TZ, 'd MMM yyyy, h:mm a'), validUntil: until, check };
   } finally {
     lock.releaseLock();
   }
@@ -381,6 +486,43 @@ function who_(ctx, b) {
   const st = ctx.staff.find(r => isActive_(r) && (tok ? token_(r.Name, ctx.s) === tok : norm_(r.Name) === n));
   if (!st) throw new Error(tok ? 'This link is out of date - pick your name instead.' : 'Name not found - see your supervisor.');
   return st;
+}
+
+// Knowledge check: every question must have been answered correctly before signing.
+function knowledgeCheck_(code, b) {
+  let qs = [];
+  try { qs = quizzes_()[String(code).trim().toUpperCase()] || []; } catch (e) { qs = []; }
+  if (!qs.length) return '';
+  const a = (b && typeof b.answers === 'object' && b.answers) || {};
+  if (qs.some(q => Number(a[q.n]) !== q.answer)) throw new Error('Finish the knowledge check before signing.');
+  const first = Math.max(0, Math.min(qs.length, Math.round(num_(b.quizFirstTry, qs.length))));
+  return 'Passed ' + qs.length + '/' + qs.length + ' - ' + first + ' right first time';
+}
+
+// Questions tab -> { CODE: [{ n, q, options, answer, why }] } (answer = index into options).
+function quizzes_() {
+  const sh = book_().getSheetByName(TAB.QUIZ);
+  if (!sh || sh.getLastRow() < 2) return {};
+  const out = {};
+  read_(TAB.QUIZ).rows.forEach(r => {
+    const code = String(r.Code || '').trim().toUpperCase();
+    const q = String(r.Question || '').trim();
+    if (!code || !q) return;
+    const key = 'ABCD'.indexOf(String(r.Answer || '').trim().toUpperCase().charAt(0));
+    const options = [];
+    let answer = -1;
+    ['Option A', 'Option B', 'Option C', 'Option D'].forEach((k, i) => {
+      const o = String(r[k] || '').trim();
+      if (!o) return;
+      if (i === key) answer = options.length;
+      options.push(o);
+    });
+    if (answer < 0 || options.length < 2) return;
+    const list = out[code] = out[code] || [];
+    list.push({ n: num_(r['No.'], 0) || list.length + 1, q, options, answer, why: String(r.Why || '').trim() });
+  });
+  Object.keys(out).forEach(k => out[k].sort((x, y) => x.n - y.n));
+  return out;
 }
 
 function token_(name, s) {

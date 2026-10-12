@@ -79,6 +79,28 @@
       <div class="v-loading" id="vLoading" hidden>Loading…</div>
       <iframe id="vEasy" title="Document (easy read)" sandbox="allow-popups allow-popups-to-escape-sandbox" hidden></iframe>
       <iframe id="vFrame" title="Document" allow="autoplay"></iframe>
+      <section class="v-quiz" id="vQuiz" hidden aria-live="polite">
+        <div class="quiz">
+          <div class="q-top">
+            <span id="qCount"></span>
+            <button type="button" class="link-btn" id="qBackDoc">Back to the document</button>
+          </div>
+          <div class="q-bar"><span id="qBar"></span></div>
+          <div id="qAsk">
+            <div class="q-again" id="qAgain" hidden>Let's try this one again</div>
+            <h3 id="qText"></h3>
+            <div class="q-opts" id="qOpts" role="group" aria-labelledby="qText"></div>
+            <div class="q-fb" id="qFb" hidden><strong id="qFbHead"></strong> <span id="qWhy"></span></div>
+            <button type="button" class="btn primary wide" id="qNext" hidden>Next question</button>
+          </div>
+          <div class="q-done" id="qDone" hidden>
+            <div class="tick">✓</div>
+            <div class="big">Knowledge check complete</div>
+            <p class="muted" id="qScore"></p>
+            <button type="button" class="btn primary wide" id="qSign">Continue to sign</button>
+          </div>
+        </div>
+      </section>
     </div>
     <div class="v-sign" id="vSign">
       <div class="timer" id="vTimer">

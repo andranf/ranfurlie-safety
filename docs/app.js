@@ -255,6 +255,7 @@
     t.appendChild(c); t.appendChild(document.createTextNode(d.title));
     main.appendChild(t);
     if (d.summary) { var s = document.createElement('div'); s.className = 'doc-sum'; s.textContent = d.summary; main.appendChild(s); }
+    if (quizOf(d)) { var tg = document.createElement('div'); tg.className = 'doc-tag'; tg.textContent = 'Training · ' + d.quiz.length + '-question knowledge check'; main.appendChild(tg); }
     var ch = chipFor(d);
     var chip = document.createElement('span'); chip.className = 'chip ' + ch.cls; chip.textContent = ch.text;
     b.appendChild(bar); b.appendChild(main); b.appendChild(chip);
@@ -357,6 +358,10 @@
     meta.textContent = d.code + ' · v' + d.version + ' ';
     var rk = document.createElement('span'); rk.className = 'rk ' + d.risk; rk.textContent = d.risk + ' risk';
     meta.appendChild(rk);
+    if (quizOf(d)) meta.appendChild(document.createTextNode(' · knowledge check'));
+    quiz = null;
+    $('vQuiz').hidden = true;
+    $('viewer').classList.remove('quizzing');
     freshFrame('vFrame').src = d.preview;
     $('vOpen').href = d.open || d.preview;
     $('vModes').hidden = true;
@@ -395,9 +400,10 @@
       var left = Math.max(0, Math.ceil(need - secs));
       $('vBar').style.width = Math.min(100, secs / need * 100) + '%';
       if (left > 0) {
-        $('vTimerText').textContent = 'Read it through · signing opens in ' + Math.floor(left / 60) + ':' + ('0' + (left % 60)).slice(-2);
+        $('vTimerText').textContent = 'Read it through · ' + (quizOf(current) ? 'knowledge check' : 'signing') + ' opens in ' + Math.floor(left / 60) + ':' + ('0' + (left % 60)).slice(-2);
       } else {
         $('vTimerText').textContent = 'Read it all?';
+        readyLabel();
         $('vReady').hidden = false;
         stopTimer();
       }
@@ -408,19 +414,143 @@
   function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
 
   $('vReady').addEventListener('click', function () {
+    if (quizOf(current) && !(quiz && quiz.done)) { startQuiz(); return; }
+    showSignForm();
+  });
+
+  function showSignForm() {
     $('vReady').hidden = true;
     $('vTimer').hidden = true;
     $('vForm').hidden = false;
     $('viewer').classList.add('signing');
     sizeSig();
     updateSubmit();
-  });
+  }
 
   $('vKeepReading').addEventListener('click', function () {
     $('vForm').hidden = true;
     $('vTimer').hidden = false;
+    readyLabel();
     $('vReady').hidden = false;
     $('viewer').classList.remove('signing');
+  });
+
+  /* ------------------------------------------------ knowledge check */
+  // Questions come from the Questions tab. Every one must be answered correctly before signing:
+  // a wrong answer shows why, and the question comes back round at the end (options reshuffled).
+
+  var quiz = null;   // { code, items, queue, answers: {n: optionIndex}, first: {n: bool}, done }
+
+  function quizOf(d) { return d && d.quiz && d.quiz.length ? d.quiz : null; }
+  function pretty(t) { return String(t).replace(/ - /g, ' – '); }
+
+  function readyLabel() {
+    var q = quizOf(current);
+    $('vReady').textContent = !q ? 'Ready to sign' : quiz && quiz.done ? 'Continue to sign' : quiz ? 'Continue knowledge check' : 'Start knowledge check';
+  }
+
+  function startQuiz() {
+    var items = quizOf(current);
+    if (!quiz || quiz.code !== current.code) {
+      quiz = { code: current.code, items: items, queue: items.map(function (_, i) { return i; }), answers: {}, first: {}, done: false };
+    }
+    $('vReady').hidden = true;
+    $('viewer').classList.add('quizzing');
+    $('vQuiz').hidden = false;
+    $('vQuiz').scrollTop = 0;
+    if (quiz.done) showQuizDone(); else showQuestion();
+  }
+
+  function shuffle(a) {
+    for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; }
+    return a;
+  }
+
+  function quizProgress() {
+    var right = Object.keys(quiz.answers).length, total = quiz.items.length;
+    $('qBar').style.width = Math.round(right / total * 100) + '%';
+    return { right: right, total: total };
+  }
+
+  function showQuestion() {
+    var item = quiz.items[quiz.queue[0]];
+    var pr = quizProgress();
+    $('qCount').textContent = 'Question ' + Math.min(pr.right + 1, pr.total) + ' of ' + pr.total;
+    $('qAsk').hidden = false;
+    $('qDone').hidden = true;
+    $('qAgain').hidden = !(item.n in quiz.first);
+    $('qText').textContent = pretty(item.q);
+    $('qFb').hidden = true;
+    $('qNext').hidden = true;
+    var box = $('qOpts');
+    box.innerHTML = '';
+    shuffle(item.options.map(function (_, i) { return i; })).forEach(function (oi, pos) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'q-opt';
+      b.setAttribute('data-i', String(oi));
+      var k = document.createElement('span'); k.className = 'k'; k.textContent = 'ABCD'.charAt(pos);
+      var t = document.createElement('span'); t.textContent = pretty(item.options[oi]);
+      b.appendChild(k); b.appendChild(t);
+      b.addEventListener('click', function () { answer(item, oi); });
+      box.appendChild(b);
+    });
+    $('vQuiz').scrollTop = 0;
+  }
+
+  function answer(item, oi) {
+    var right = oi === item.answer;
+    if (!(item.n in quiz.first)) quiz.first[item.n] = right;
+    var opts = $('qOpts').children;
+    for (var i = 0; i < opts.length; i++) {
+      var b = opts[i], bi = Number(b.getAttribute('data-i'));
+      b.disabled = true;
+      if (bi === oi) b.classList.add(right ? 'right' : 'wrong');
+      else if (bi === item.answer && !right) b.classList.add('right');
+      else b.classList.add('dim');
+    }
+    var fb = $('qFb');
+    fb.className = 'q-fb ' + (right ? 'ok' : 'no');
+    $('qFbHead').textContent = right ? 'Correct.' : 'Not quite.';
+    $('qWhy').textContent = pretty(item.why || '') + (right ? '' : ' This one will come back at the end.');
+    fb.hidden = false;
+    var idx = quiz.queue.shift();
+    if (right) quiz.answers[item.n] = oi; else quiz.queue.push(idx);
+    quizProgress();
+    $('qNext').textContent = quiz.queue.length ? 'Next question' : 'Finish';
+    $('qNext').hidden = false;
+    setTimeout(function () { try { $('qNext').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {} }, 50);
+  }
+
+  $('qNext').addEventListener('click', function () {
+    if (quiz.queue.length) showQuestion(); else { quiz.done = true; showQuizDone(); }
+  });
+
+  function firstTimeRight() {
+    return quiz.items.filter(function (it) { return quiz.first[it.n] === true; }).length;
+  }
+
+  function showQuizDone() {
+    var pr = quizProgress();
+    $('qCount').textContent = 'All ' + pr.total + ' questions answered';
+    $('qAsk').hidden = true;
+    $('qDone').hidden = false;
+    var ft = firstTimeRight();
+    $('qScore').textContent = ft === pr.total ? 'You got every question right first time.' : 'You got ' + ft + ' of ' + pr.total + ' right first time, and the rest on the second go.';
+    $('vQuiz').scrollTop = 0;
+  }
+
+  function hideQuiz() {
+    $('vQuiz').hidden = true;
+    $('viewer').classList.remove('quizzing');
+  }
+
+  $('qSign').addEventListener('click', function () { hideQuiz(); showSignForm(); });
+  $('qBackDoc').addEventListener('click', function () {
+    hideQuiz();
+    $('vTimer').hidden = false;
+    readyLabel();
+    $('vReady').hidden = false;
   });
 
   function closeViewer() {
@@ -451,11 +581,13 @@
     var btn = $('vSubmit');
     btn.disabled = true; btn.textContent = 'Signing…';
     $('vErr').textContent = '';
-    post({
+    var body = {
       action: 'sign', name: me.name, code: d.code, version: d.version,
       readSeconds: Math.round((Date.now() - openedAt) / 1000), declare: true,
       signature: exportSig(), ua: navigator.userAgent
-    }).then(function (r) {
+    };
+    if (quizOf(d) && quiz && quiz.code === d.code && quiz.done) { body.answers = quiz.answers; body.quizFirstTry = firstTimeRight(); }
+    post(body).then(function (r) {
       $('vForm').hidden = true;
       $('vTimer').hidden = true;
       $('viewer').classList.remove('signing');

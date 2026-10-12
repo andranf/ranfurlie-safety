@@ -17,6 +17,10 @@ Read-and-sign page for Ranfurlie course maintenance safe work procedures (SWPs) 
 
 All values live in the sheet's Settings tab. A document that is updated in Drive must be re-signed by everyone.
 
+## Knowledge checks
+
+Any document can carry a knowledge check: add rows to the sheet's **Questions** tab (Code, No., Question, Options A–D, Answer letter, Why). Staff answer every question correctly before they can sign — a wrong answer shows the explanation and the question comes back round at the end. The Register's *Knowledge check* column records how many they got right first time. OHS-32 Bullying, Harassment & Discrimination ships with 12 questions.
+
 ## Updating the backend
 
 Copy `backend/Code.gs` into the sheet's Apps Script editor, save, then **Deploy > Manage deployments > Edit > New version** so the web app URL stays the same.
