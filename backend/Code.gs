@@ -1,11 +1,13 @@
 /**
  * Ranfurlie Safety - read & sign backend.
  *
- * Google Apps Script bound to the "Ranfurlie Safety Register" Google Sheet.
- *   1. Extensions > Apps Script, paste this file over Code.gs, save.
- *   2. Run setup() once (or Safety menu > Set up / repair) and approve access.
+ * Standalone Google Apps Script project ("Ranfurlie Safety") that runs the
+ * "Ranfurlie Safety Register" Google Sheet (SHEET_ID below).
+ *   1. Paste this file over Code.gs, save.
+ *   2. Run setup() once and approve access.
  *   3. Deploy > New deployment > Web app: Execute as Me, Who has access: Anyone.
- *      Put the /exec URL into site/config.js on GitHub.
+ *      Put the /exec URL into docs/config.js on GitHub.
+ * Manual runs from the editor: syncNow, previewReminders, sendRemindersNow, setup.
  *
  * What it does
  *   - Every 10 min: picks up files dropped into the Drive Library folder, gives them a code,
@@ -17,6 +19,9 @@
  */
 
 const TZ = 'Australia/Melbourne';
+const SHEET_ID = '1VFFfJz8YBAOjSDBJ2odzth0TTt0NODHoyzJzMbCSksE';
+let BOOK_ = null;
+function book_() { return BOOK_ || (BOOK_ = SpreadsheetApp.openById(SHEET_ID)); }
 const TAB = {
   MATRIX: 'Matrix', REGISTER: 'Register', STAFF: 'Staff', DOCS: 'Documents',
   REMINDERS: 'Reminders', SETTINGS: 'Settings', README: 'Read me'
@@ -142,41 +147,31 @@ const README_LINES = [
   'PINs: staff create their own 4-digit PIN the first time they sign in. To reset one, clear their PIN cell. You can also type a 4-digit PIN in yourself - it is protected the next time they sign in.',
   'Reminders: 7am on the days in Settings. Staff are tagged in Slack from 14 days before a sign-off falls due, weekly while it is outstanding, and straight away when it goes overdue.',
   'Matrix: rebuilt automatically. Green = current, amber = due soon or still to sign, red = overdue, grey = not required.',
-  'Menu: Safety > Sync now / Preview reminders / Send reminders now / Set up or repair.'
+  "Manual runs: open the 'Ranfurlie Safety' Apps Script project and run syncNow, previewReminders or sendRemindersNow (results show in the execution log)."
 ];
 
-/* ------------------------------------------------------------------ menu */
+/* ------------------------------------------------------- manual runs */
 
-function onOpen() {
-  SpreadsheetApp.getUi().createMenu('Safety')
-    .addItem('Sync now', 'menuSync')
-    .addItem('Preview reminders (no post)', 'menuPreview')
-    .addItem('Send reminders now', 'menuRemind')
-    .addSeparator()
-    .addItem('Set up / repair', 'setup')
-    .addToUi();
-}
-
-function menuSync() {
+function syncNow() {
   syncLibrary_();
   refreshOutputs_();
-  SpreadsheetApp.getActive().toast('Library synced and matrix rebuilt.', 'Safety', 5);
+  console.log('Library synced, matrix and dashboard data rebuilt.');
 }
 
-function menuPreview() {
+function previewReminders() {
   const r = remind_({ dryRun: true, force: true });
-  SpreadsheetApp.getUi().alert('Reminder preview', r.text || 'Nobody needs a reminder today.', SpreadsheetApp.getUi().ButtonSet.OK);
+  console.log(r.text || 'Nobody needs a reminder today.');
 }
 
-function menuRemind() {
+function sendRemindersNow() {
   const r = remind_({ dryRun: false, force: true });
-  SpreadsheetApp.getUi().alert('Reminders', r.message, SpreadsheetApp.getUi().ButtonSet.OK);
+  console.log(r.message + (r.text ? '\n' + r.text : ''));
 }
 
 /* ----------------------------------------------------------------- setup */
 
 function setup() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = book_();
   ss.setSpreadsheetTimeZone(TZ);
   ensureSheets_();
   const s = settings_();
@@ -191,12 +186,12 @@ function setup() {
   ScriptApp.newTrigger('sendReminders').timeBased().atHour(7).everyDays(1).inTimezone(TZ).create();
   syncLibrary_();
   refreshOutputs_();
-  try { ss.toast('Set up complete. Sync runs every 10 minutes; reminders at 7am.', 'Safety', 8); } catch (e) {}
+  console.log('Set up complete. Sync runs every 10 minutes; reminders at 7am.');
   return 'ok';
 }
 
 function ensureSheets_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = book_();
   const order = [TAB.MATRIX, TAB.REGISTER, TAB.STAFF, TAB.DOCS, TAB.REMINDERS, TAB.SETTINGS, TAB.README];
   order.forEach((name, i) => {
     let sh = ss.getSheetByName(name);
@@ -812,8 +807,8 @@ function titles_(list) {
 /* ------------------------------------------------------------- helpers */
 
 function sheet_(name) {
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
-  if (!sh) throw new Error('Missing tab: ' + name + ' - run Safety > Set up / repair');
+  const sh = book_().getSheetByName(name);
+  if (!sh) throw new Error('Missing tab: ' + name + ' - run setup()');
   return sh;
 }
 
