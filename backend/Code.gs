@@ -84,9 +84,9 @@ const SEED_SETTINGS = [
 ];
 
 const SEED_KEYS = [
-  ['Key 1', 'Weekend spare shed key', true, '', '', '', '', ''],
-  ['Key 2', 'Weekend spare shed key', true, '', '', '', '', ''],
-  ['Key 3', 'Weekend spare shed key', true, '', '', '', '', '']
+  ['Key #2', 'Weekend spare shed key', true, '', '', '', '', ''],
+  ['Key #3', 'Weekend spare shed key', true, '', '', '', '', ''],
+  ['Key #4', 'Weekend spare shed key', true, '', '', '', '', '']
 ];
 
 const SEED_STAFF = [
@@ -251,7 +251,7 @@ const README_LINES = [
   "Manual runs: open the 'Ranfurlie Safety' Apps Script project and run syncNow, previewReminders or sendRemindersNow (results show in the execution log).",
   '',
   'SHED KEYS',
-  "Keys tab: one row per weekend spare key. The Key name is what staff tap on the page, so match the key tag (e.g. 'Key 1'). Untick Active to take a key out of use. Status, With, Since and Due back fill in automatically.",
+  "Keys tab: one row per weekend spare key. The Key name is what staff tap on the page, so match the key tag (e.g. 'Key #2'). Untick Active to take a key out of use. Status, With, Since and Due back fill in automatically.",
   'Taking a key (QR code KEY OUT): pick name, the key SOP (Settings KEY_SWP_CODE) must be signed and current, tick each term including the lost-key responsibility, sign. A row goes into Key Log with the time, due-back time and signature.',
   'Returning a key (QR code KEY BACK): pick name, tap the key, confirm it is back in its spot. Anyone can return a key for someone else - Returned by shows who. Returned after the due time = Returned late.',
   'Due back: the next Tuesday after the key is taken, 10am (KEY_DUE_DAY / KEY_DUE_TIME). From 10am Tuesday every key still out is posted in Slack tagging the holder plus Andrew, Ben and Neil (KEY_ALERT_CC), then again at 10am each weekday until it is scanned back in.',
