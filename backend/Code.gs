@@ -601,8 +601,25 @@ function cleanTitle_(fileName) {
     .replace(/^[A-Za-z]{2,4}-\d{1,3}[\s_-]*/, '')
     .replace(/[_]+/g, ' ')
     .replace(/\s*-\s*Copy$/i, '')
+    .trim()
+    .replace(/^(SOP|SWP|SWMS)\b[\s:-]*/i, '')
+    .replace(/[\s-]*\b(SOP|SWP|SWMS)\b\s*(draft)?$/i, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+// One-off tidy: strip a leading/trailing SOP/SWP from titles of documents added from Drive.
+function tidyTitles() {
+  const t = read_(TAB.DOCS);
+  let n = 0;
+  t.rows.forEach(d => {
+    if (!/^Added from Drive/.test(String(d.Notes || ''))) return;
+    const clean = cleanTitle_(String(d.Title || ''));
+    if (clean && clean !== String(d.Title)) { writeRow_(t, d._row, { 'Title': clean }); n++; }
+  });
+  CacheService.getScriptCache().remove('library');
+  PropertiesService.getScriptProperties().setProperty('dirty', '1');
+  console.log('Titles tidied: ' + n);
 }
 
 function nextCode_(docs, prefix) {
