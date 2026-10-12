@@ -43,7 +43,7 @@ const SEED_SETTINGS = [
   ['DOCUMENTS_CSV_ID', '1DD_lRV9ROWhNFIfagrFFFCV5rlc0yxko', 'Dashboard data file'],
   ['SITE_URL', 'https://andranf.github.io/ranfurlie-safety/', 'Staff sign-off page (linked in Slack reminders)'],
   ['SLACK_WEBHOOK_URL', '', 'Slack incoming webhook for reminders (the webhook sets the channel)'],
-  ['SLACK_CHANNEL', '#ohs', 'Label only - the channel the webhook posts to'],
+  ['SLACK_CHANNEL', '#safe-work-procedures', 'Label only - the channel the webhook posts to'],
   ['GO_LIVE_DATE', '2026-10-13', 'First due dates count from this date'],
   ['RENEW_MONTHS_HIGH', 6, 'Re-sign interval for High risk documents (months)'],
   ['RENEW_MONTHS_MEDIUM', 12, 'Re-sign interval for Medium risk documents (months)'],
