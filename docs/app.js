@@ -602,6 +602,11 @@
       p.appendChild(document.createTextNode(' · current until ' + fmt(r.validUntil)));
       var back = document.createElement('button'); back.type = 'button'; back.className = 'btn primary'; back.textContent = 'Back to my list';
       back.addEventListener('click', function () { $('vBack').click(); });
+      if (/[?&]then=keys(?=&|$)/.test(location.search)) {
+        // Came from the shed key page to sign the key SOP - send them straight back to take the key.
+        back = document.createElement('a'); back.className = 'btn primary'; back.textContent = 'Back to shed keys';
+        back.href = 'keys.html?out'; back.style.display = 'inline-block'; back.style.textDecoration = 'none';
+      }
       done.appendChild(tk); done.appendChild(big); done.appendChild(p); done.appendChild(back);
       done.hidden = false;
       if (me.items[d.code]) {

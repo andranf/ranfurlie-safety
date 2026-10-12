@@ -16,6 +16,10 @@
  *   - Web API for the staff page: library list, sign-in by name or personal link, sign a document
  *     (drawn signature saved to the private Signatures folder, row added to Register).
  *   - 7am on reminder days: tags staff in Slack (incoming webhook) when sign-offs are due or overdue.
+ *   - Shed keys (docs/keys.html): staff take a weekend key (key SOP must be current, terms ticked,
+ *     drawn signature) and scan it back in. Keys and Key Log tabs. From 10am Tuesday any key still
+ *     out is called out in Slack, then again each weekday until it is back. Lost keys alert at once.
+ * Manual runs for keys: setupKeys, previewKeyCallout.
  */
 
 const TZ = 'Australia/Melbourne';
@@ -24,7 +28,8 @@ let BOOK_ = null;
 function book_() { return BOOK_ || (BOOK_ = SpreadsheetApp.openById(SHEET_ID)); }
 const TAB = {
   MATRIX: 'Matrix', REGISTER: 'Register', STAFF: 'Staff', DOCS: 'Documents', QUIZ: 'Questions',
-  REMINDERS: 'Reminders', SETTINGS: 'Settings', README: 'Read me'
+  REMINDERS: 'Reminders', SETTINGS: 'Settings', README: 'Read me',
+  KEYS: 'Keys', KEYLOG: 'Key Log'
 };
 const HEAD = {
   Register: ['Signed at', 'Receipt', 'Staff', 'Code', 'Document', 'Version', 'Risk', 'Valid until', 'Read time (sec)', 'Signature', 'Declaration', 'Device', 'Knowledge check'],
@@ -32,7 +37,9 @@ const HEAD = {
   Documents: ['Code', 'Title', 'Category', 'Risk', 'Applies to', 'Renew (months)', 'Read time (sec)', 'Summary', 'Status', 'Version', 'Updated', 'File ID', 'File name', 'Link', 'Added', 'Notes'],
   Questions: ['Code', 'No.', 'Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Answer', 'Why'],
   Reminders: ['Sent at', 'Staff', 'Slack ID', 'Overdue', 'Due', 'Codes'],
-  Settings: ['Key', 'Value', 'What it does']
+  Settings: ['Key', 'Value', 'What it does'],
+  Keys: ['Key', 'Description', 'Active', 'Status', 'With', 'Since', 'Due back', 'Notes'],
+  'Key Log': ['Out at', 'Receipt', 'Key', 'Staff', 'Due back', 'Key SOP', 'Agreed to', 'Signature', 'Device', 'Returned at', 'Returned by', 'Status', 'Callouts', 'Last callout', 'Lost report', 'Notes']
 };
 const CATEGORIES = ['General OHS & Emergency', 'Chemicals & Spraying', 'Machinery & Plant SWPs', 'Workshop & Tools', 'Other'];
 const CATEGORY_PREFIX = { 'General OHS & Emergency': 'OHS', 'Chemicals & Spraying': 'CHM', 'Machinery & Plant SWPs': 'SWP', 'Workshop & Tools': 'WKS' };
@@ -65,7 +72,21 @@ const SEED_SETTINGS = [
   ['REMIND_ON_DAYS', 'Mon,Tue,Wed,Thu,Fri', 'Days reminders can post (7am)'],
   ['RESIGN_ON_UPDATE', 'TRUE', 'When a document file is updated, everyone re-signs the new version'],
   ['EASY_READ_FOLDER_ID', '1Lxh8A1-jVhK9uF0gHaZWKUAPIQpgV21h', 'Private folder for the phone-friendly copies of each document (made automatically)'],
-  ['PIN_SALT', '', 'Do not change - makes each person\'s personal link (filled in by setup)']
+  ['PIN_SALT', '', 'Do not change - makes each person\'s personal link (filled in by setup)'],
+  ['KEY_PAGE_URL', 'https://andranf.github.io/ranfurlie-safety/keys.html', 'Shed key page - the wall QR codes open this (?out to take a key, ?in to return one)'],
+  ['KEY_SWP_CODE', 'OHS-34', 'Key SOP staff must have signed (and be current on) before they can take a key'],
+  ['KEY_SWP_REQUIRED', 'TRUE', 'TRUE = no key until the key SOP is signed. FALSE = allow it, but the Key Log shows NOT SIGNED'],
+  ['KEY_DUE_DAY', 'Tue', 'Keys are due back by this day (the next one after the key is taken)'],
+  ['KEY_DUE_TIME', '10:00', 'Due back time (24 h). Keys still out are called out in Slack from this time'],
+  ['KEY_REPEAT_DAILY', 'TRUE', 'Call out an unreturned key again at the due time each weekday until it is scanned back in'],
+  ['KEY_ALERT_CC', 'U06BCCG4HT9 U06NBNSR9LG U06FJ0J1RH8', 'Slack IDs tagged on overdue and missing key posts (Andrew, Ben, Neil)'],
+  ['KEY_SLACK_WEBHOOK_URL', '', 'Webhook for key posts - leave blank to use SLACK_WEBHOOK_URL']
+];
+
+const SEED_KEYS = [
+  ['Key 1', 'Weekend spare shed key', true, '', '', '', '', ''],
+  ['Key 2', 'Weekend spare shed key', true, '', '', '', '', ''],
+  ['Key 3', 'Weekend spare shed key', true, '', '', '', '', '']
 ];
 
 const SEED_STAFF = [
@@ -227,7 +248,15 @@ const README_LINES = [
   'Signing in: no PIN. Staff pick their name once and their phone remembers them. Each Slack reminder carries their own link that opens straight to their list. Every signature records the drawn signature, time, read time and device.',
   'Reminders: 7am on the days in Settings. Staff are tagged in Slack from 14 days before a sign-off falls due, weekly while it is outstanding, and straight away when it goes overdue.',
   'Matrix: rebuilt automatically. Green = current, amber = due soon or still to sign, red = overdue, grey = not required.',
-  "Manual runs: open the 'Ranfurlie Safety' Apps Script project and run syncNow, previewReminders or sendRemindersNow (results show in the execution log)."
+  "Manual runs: open the 'Ranfurlie Safety' Apps Script project and run syncNow, previewReminders or sendRemindersNow (results show in the execution log).",
+  '',
+  'SHED KEYS',
+  "Keys tab: one row per weekend spare key. The Key name is what staff tap on the page, so match the key tag (e.g. 'Key 1'). Untick Active to take a key out of use. Status, With, Since and Due back fill in automatically.",
+  'Taking a key (QR code KEY OUT): pick name, the key SOP (Settings KEY_SWP_CODE) must be signed and current, tick each term including the lost-key responsibility, sign. A row goes into Key Log with the time, due-back time and signature.',
+  'Returning a key (QR code KEY BACK): pick name, tap the key, confirm it is back in its spot. Anyone can return a key for someone else - Returned by shows who. Returned after the due time = Returned late.',
+  'Due back: the next Tuesday after the key is taken, 10am (KEY_DUE_DAY / KEY_DUE_TIME). From 10am Tuesday every key still out is posted in Slack tagging the holder plus Andrew, Ben and Neil (KEY_ALERT_CC), then again at 10am each weekday until it is scanned back in.',
+  "Missing key: 'Lost or missing key?' on the return page posts a Slack alert straight away and marks the key Lost. If it turns up, return it as normal and Slack is told it is back.",
+  "Fixing a record: type the time into 'Returned at' on the Key Log row (or set Status to Returned) and it closes. Manual runs: setupKeys, previewKeyCallout."
 ];
 
 /* ------------------------------------------------------- manual runs */
@@ -254,6 +283,7 @@ function setup() {
   const ss = book_();
   ss.setSpreadsheetTimeZone(TZ);
   ensureSheets_();
+  ensureSettings_();
   const s = settings_();
   if (!String(s.PIN_SALT || '').trim()) setSetting_('PIN_SALT', Utilities.getUuid().replace(/-/g, '').slice(0, 24));
   try {
@@ -272,7 +302,7 @@ function setup() {
 
 function ensureSheets_() {
   const ss = book_();
-  const order = [TAB.MATRIX, TAB.REGISTER, TAB.STAFF, TAB.DOCS, TAB.QUIZ, TAB.REMINDERS, TAB.SETTINGS, TAB.README];
+  const order = [TAB.MATRIX, TAB.REGISTER, TAB.KEYS, TAB.KEYLOG, TAB.STAFF, TAB.DOCS, TAB.QUIZ, TAB.REMINDERS, TAB.SETTINGS, TAB.README];
   order.forEach((name, i) => {
     let sh = ss.getSheetByName(name);
     if (!sh) sh = ss.insertSheet(name, i);
@@ -321,6 +351,17 @@ function ensureSheets_() {
       sh.getRange(2, 1, 5000, 1).setNumberFormat('yyyy-mm-dd hh:mm');
       sh.getRange(2, 8, 5000, 1).setNumberFormat('yyyy-mm-dd');
       [130, 130, 150, 70, 280, 60, 70, 95, 80, 80, 300, 220].forEach((w, j) => sh.setColumnWidth(j + 1, w));
+    }
+    if (name === TAB.KEYS) {
+      sh.getRange(2, 1, SEED_KEYS.length, SEED_KEYS[0].length).setValues(SEED_KEYS);
+      sh.getRange(2, 3, 100, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
+      sh.getRange(2, 3, SEED_KEYS.length, 1).setValues(SEED_KEYS.map(r => [r[2]]));
+      sh.getRange(2, 6, 100, 2).setNumberFormat('ddd d mmm h:mm am/pm');
+      [110, 220, 60, 90, 160, 150, 150, 300].forEach((w, j) => sh.setColumnWidth(j + 1, w));
+    }
+    if (name === TAB.KEYLOG) {
+      [1, 5, 10, 14].forEach(c => sh.getRange(2, c, 5000, 1).setNumberFormat('ddd d mmm yy h:mm am/pm'));
+      [150, 150, 80, 150, 150, 120, 320, 80, 200, 150, 170, 110, 75, 150, 300, 240].forEach((w, j) => sh.setColumnWidth(j + 1, w));
     }
     if (name === TAB.REMINDERS) {
       sh.getRange(2, 1, 5000, 1).setNumberFormat('yyyy-mm-dd hh:mm');
@@ -375,6 +416,10 @@ function doPost(e) {
   try {
     if (b.action === 'me') return json_(me_(b));
     if (b.action === 'sign') return json_(sign_(b));
+    if (b.action === 'keys') return json_(keys_(b));
+    if (b.action === 'keyOut') return json_(keyOut_(b));
+    if (b.action === 'keyIn') return json_(keyIn_(b));
+    if (b.action === 'keyLost') return json_(keyLost_(b));
     return json_({ ok: false, error: 'Unknown action' });
   } catch (err) {
     return json_({ ok: false, error: msg_(err) });
@@ -583,6 +628,7 @@ function computeAll_(ctx) {
 
 function tick() {
   const started = Date.now();
+  try { keyCallouts_({ dryRun: false }); } catch (e) { console.error('key callouts failed: ' + e); }
   const props = PropertiesService.getScriptProperties();
   let changed = false;
   try { changed = syncLibrary_(); } catch (e) { console.error('sync failed: ' + e); }
@@ -1067,6 +1113,351 @@ function remind_(opt) {
 function titles_(list) {
   const t = list.slice(0, 3).map(i => String(i.doc.Title).trim());
   return t.join('; ') + (list.length > 3 ? ' +' + (list.length - 3) + ' more' : '');
+}
+
+/* ----------------------------------------------------------- shed keys */
+// Weekend spare keys for the maintenance shed. Page: docs/keys.html (?out = take, ?in = return).
+// Keys tab = the keys; Key Log tab = one row per sign-out, closed when the key is scanned back in.
+
+const KEY_CLOSED = ['returned', 'returned late', 'written off', 'cancelled'];
+
+// Manual run: add the key tabs and settings (also happens automatically on first use).
+function setupKeys() {
+  ensureSheets_();
+  ensureSettings_();
+  refreshKeysTab_(keyCtx_());
+  console.log('Shed keys ready. Keys: ' + read_(TAB.KEYS).rows.map(r => r.Key).join(', '));
+}
+
+// Manual run: show what the Slack callout would say right now (ignores the time of day, posts nothing).
+function previewKeyCallout() {
+  const r = keyCallouts_({ dryRun: true, force: true });
+  console.log(r.text || 'No keys are overdue.');
+}
+
+// Any new Settings rows added since the sheet was built.
+function ensureSettings_() {
+  const sh = sheet_(TAB.SETTINGS);
+  const have = sh.getDataRange().getValues().slice(1).map(r => String(r[0] || '').trim());
+  const add = SEED_SETTINGS.filter(r => have.indexOf(r[0]) < 0);
+  if (!add.length) return;
+  const at = sh.getLastRow() + 1;
+  sh.getRange(at, 2, add.length, 1).setNumberFormat('@');
+  sh.getRange(at, 1, add.length, 3).setValues(add.map(r => [r[0], String(r[1]), r[2]]));
+}
+
+function keyCtx_() {
+  const ss = book_();
+  if (!ss.getSheetByName(TAB.KEYS) || !ss.getSheetByName(TAB.KEYLOG)) ensureSheets_();
+  if (!('KEY_DUE_DAY' in settings_())) ensureSettings_();
+  const ctx = context_();
+  const keys = read_(TAB.KEYS);
+  const log = read_(TAB.KEYLOG);
+  const open = {};
+  log.rows.forEach(r => { if (isOpenKey_(r)) open[norm_(r.Key)] = r; });
+  return Object.assign(ctx, { keys, log, open, now: new Date() });
+}
+
+function isOpenKey_(r) {
+  if (!String(r.Key || '').trim()) return false;
+  if (r['Returned at'] !== '' && r['Returned at'] !== null && r['Returned at'] !== undefined) return false;
+  return KEY_CLOSED.indexOf(String(r.Status || '').trim().toLowerCase()) < 0;
+}
+function keyActive_(r) { return !!String(r.Key || '').trim() && (r.Active === '' || bool_(r.Active)); }
+function keyIsLost_(r) { return String(r.Status || '').trim().toLowerCase() === 'lost'; }
+function asDate_(v) { if (v instanceof Date) return isNaN(v.getTime()) ? null : v; const d = v ? new Date(v) : null; return d && !isNaN(d.getTime()) ? d : null; }
+
+function keyTime_(s) {
+  const v = s.KEY_DUE_TIME;
+  if (v instanceof Date) return Utilities.formatDate(v, book_().getSpreadsheetTimeZone(), 'HH:mm');
+  const m = String(v || '10:00').match(/(\d{1,2})(?::(\d{2}))?/);
+  return m ? ('0' + Math.min(23, Number(m[1]))).slice(-2) + ':' + (m[2] || '00') : '10:00';
+}
+function keyDow_(s) {
+  const i = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].indexOf(String(s.KEY_DUE_DAY || 'Tue').trim().slice(0, 3).toLowerCase());
+  return i < 0 ? 2 : i + 1;
+}
+function dowOf_(d) { return ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].indexOf(Utilities.formatDate(d, TZ, 'EEE').toLowerCase().slice(0, 3)) + 1; }   // 1 = Mon ... 7 = Sun
+
+// Due back: the next due day after today (a key taken on a Tuesday is due the following Tuesday).
+function keyDue_(when, s) {
+  let add = (keyDow_(s) - dowOf_(when) + 7) % 7;
+  if (add === 0) add = 7;
+  return Utilities.parseDate(addDays_(dayKey_(when), add) + ' ' + keyTime_(s), TZ, 'yyyy-MM-dd HH:mm');
+}
+
+function clock_(d) { return Utilities.formatDate(d, TZ, 'h:mm a').toLowerCase().replace(':00 ', '').replace(' ', ''); }
+function when_(d) { d = asDate_(d); return d ? Utilities.formatDate(d, TZ, 'EEE d MMM') + ', ' + clock_(d) : ''; }
+function dueText_(d) { d = asDate_(d); return d ? clock_(d) + ' ' + Utilities.formatDate(d, TZ, 'EEE d MMM') : ''; }
+function dueRule_(s) {
+  const day = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][keyDow_(s) - 1];
+  return clock_(Utilities.parseDate('2026-01-01 ' + keyTime_(s), TZ, 'yyyy-MM-dd HH:mm')) + ' ' + day;
+}
+
+function keySop_(kc, st) {
+  const code = String(kc.s.KEY_SWP_CODE || '').trim().toUpperCase();
+  if (!code) return null;
+  const doc = kc.docs.find(d => String(d.Code).trim().toUpperCase() === code && isLive_(d));
+  if (!doc) return null;
+  const out = { code, title: String(doc.Title).trim(), required: bool_(kc.s.KEY_SWP_REQUIRED) };
+  if (!st) return out;
+  const i = itemStatus_(kc, st, doc);
+  return Object.assign(out, { ok: i.status === 'Current' || i.status === 'Due soon', signed: i.signed || '', validUntil: i.validUntil || '', outdated: !!i.outdated });
+}
+
+// The terms ticked when a key is taken. The page shows exactly these and the Key Log stores them.
+function keyTerms_(kc) {
+  const sop = keySop_(kc, null);
+  const t = [];
+  if (sop) t.push({ id: 'sop', text: 'I have read and signed ' + sop.code + ' ' + sop.title + ' and will follow it.' });
+  t.push({ id: 'hold', text: 'I will keep the key on me at all times - never left in a vehicle, machine, locker or toolbox - and I will not lend, hand on or copy it.' });
+  t.push({ id: 'lock', text: 'I will lock the shed every time I leave, return the key straight after my last shift, and scan it back in by ' + dueRule_(kc.s) + ' at the latest.' });
+  t.push({ id: 'report', text: 'I will report a lost or missing key to my Supervisor or the Course Superintendent straight away - not wait while I keep looking.' });
+  return {
+    terms: t,
+    liability: {
+      title: 'Lost keys - your responsibility',
+      text: 'One key opens every shed door. If it is lost, every lock may have to be replaced, and the Club\'s machinery and equipment are at risk until they are. ' +
+        'From now until it is scanned back in, this key is my responsibility. I understand that losing the key, not reporting a loss straight away, or not returning it on time may result in disciplinary action.',
+      tick: 'I accept responsibility for this key.'
+    }
+  };
+}
+
+function keyList_(kc) {
+  return kc.keys.rows.filter(keyActive_).map(r => {
+    const name = String(r.Key).trim();
+    const o = kc.open[norm_(name)];
+    const due = o ? asDate_(o['Due back']) : null;
+    return {
+      key: name, desc: String(r.Description || '').trim(),
+      status: o ? (keyIsLost_(o) ? 'Lost' : 'Out') : 'In',
+      with: o ? String(o.Staff || '').trim() : '',
+      since: o ? when_(o['Out at']) : '',
+      due: due ? dueText_(due) : '',
+      overdue: !!(o && !keyIsLost_(o) && due && due <= kc.now)
+    };
+  });
+}
+
+// Page load: keys, staff, due-back time and (once a name is known) the key SOP status.
+function keys_(b) {
+  const kc = keyCtx_();
+  let st = null, whoErr = '';
+  if (String(b.u || b.name || '').trim()) { try { st = who_(kc, b); } catch (e) { whoErr = msg_(e); } }
+  const t = keyTerms_(kc);
+  return {
+    ok: true,
+    staff: kc.staff.filter(isActive_).map(r => String(r.Name).trim()).sort(),
+    me: st ? String(st.Name).trim() : '', whoError: whoErr,
+    keys: keyList_(kc),
+    sop: keySop_(kc, st),
+    dueBack: dueText_(keyDue_(kc.now, kc.s)), dueRule: dueRule_(kc.s),
+    terms: t.terms, liability: t.liability,
+    siteUrl: String(kc.s.SITE_URL || '').trim()
+  };
+}
+
+function keyOut_(b) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    const kc = keyCtx_();
+    const st = who_(kc, b);
+    const name = String(st.Name).trim();
+    const kr = kc.keys.rows.filter(keyActive_).find(r => norm_(r.Key) === norm_(b.key));
+    if (!kr) throw new Error('That key is not on the list. Reload the page.');
+    const key = String(kr.Key).trim();
+    const o = kc.open[norm_(key)];
+    if (o && keyIsLost_(o)) throw new Error(key + ' is reported missing. If it has turned up, return it on the Return a key tab first.');
+    if (o) throw new Error(key + (norm_(o.Staff) === norm_(name) ? ' is already signed out to you.' : ' is already signed out to ' + String(o.Staff).trim() + '. Pick another key.'));
+    const sop = keySop_(kc, st);
+    if (sop && sop.required && !sop.ok) throw new Error('Read and sign ' + sop.code + ' ' + sop.title + ' before you take a key.');
+    if (b.ack !== true) throw new Error('Tick every box to take the key.');
+    const m = String(b.signature || '').match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+    if (!m || m[1].length < 200 || m[1].length > 600000) throw new Error('Please sign with your finger.');
+
+    const now = new Date();
+    const due = keyDue_(now, kc.s);
+    const file = DriveApp.getFolderById(kc.s.SIGNATURE_FOLDER_ID).createFile(
+      Utilities.newBlob(Utilities.base64Decode(m[1]), 'image/png', Utilities.formatDate(now, TZ, 'yyyy-MM-dd HHmm') + ' ' + name + ' ' + key + ' key out.png'));
+    const receipt = 'KEY-' + Utilities.formatDate(now, TZ, 'yyMMdd') + '-' + sha_(name + '|' + key + '|' + now.getTime()).slice(0, 5).toUpperCase();
+    const t = keyTerms_(kc);
+    const agreed = t.terms.map(x => x.text).concat([t.liability.text]).join(' | ');
+    const sopText = sop ? (sop.ok ? sop.code + ' signed ' + sop.signed : sop.code + ' NOT SIGNED') : 'n/a';
+    const row = {
+      'Out at': now, 'Receipt': receipt, 'Key': key, 'Staff': name, 'Due back': due, 'Key SOP': sopText, 'Agreed to': agreed,
+      'Signature': '=HYPERLINK("' + file.getUrl() + '","View")', 'Device': String(b.ua || '').slice(0, 160), 'Status': 'Out', 'Callouts': 0
+    };
+    kc.log.sh.appendRow(kc.log.head.map(h => (h in row ? row[h] : '')));
+    refreshKeysTab_(keyCtx_());
+    return { ok: true, receipt, key, outAt: when_(now), dueBack: dueText_(due) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function keyIn_(b) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    const kc = keyCtx_();
+    const st = who_(kc, b);
+    const name = String(st.Name).trim();
+    const o = kc.open[norm_(b.key)];
+    if (!o) throw new Error('That key is already signed back in.');
+    if (b.stored !== true) throw new Error('Tick the box once the key is back in its spot.');
+    const key = String(o.Key).trim();
+    const holder = String(o.Staff || '').trim();
+    const now = new Date();
+    const due = asDate_(o['Due back']);
+    const late = !!(due && now > due);
+    const wasLost = keyIsLost_(o);
+    writeRow_(kc.log, o._row, {
+      'Returned at': now,
+      'Returned by': !holder || norm_(holder) === norm_(name) || /^\(/.test(holder) ? name : name + ' (for ' + holder + ')',
+      'Status': late ? 'Returned late' : 'Returned',
+      'Notes': (String(o.Notes || '').trim() ? String(o.Notes).trim() + ' · ' : '') + (wasLost ? 'Found and returned' : '')
+    });
+    if (wasLost || num_(o.Callouts, 0) > 0) {
+      keySlack_(kc.s, ':white_check_mark: *' + key + ' is back* - returned by ' + slackName_(kc, name) + ', ' + when_(now) + (wasLost ? ' (was reported missing)' : ''));
+    }
+    refreshKeysTab_(keyCtx_());
+    return { ok: true, key, returnedAt: when_(now), late, dueBack: due ? dueText_(due) : '' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function keyLost_(b) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    const kc = keyCtx_();
+    const st = who_(kc, b);
+    const name = String(st.Name).trim();
+    const kr = kc.keys.rows.filter(keyActive_).find(r => norm_(r.Key) === norm_(b.key));
+    if (!kr) throw new Error('Pick the key that is missing.');
+    const key = String(kr.Key).trim();
+    const where = String(b.where || '').trim().slice(0, 200);
+    const last = String(b.when || '').trim().slice(0, 120);
+    if (!where) throw new Error('Say where the key was last seen.');
+    const now = new Date();
+    const report = when_(now) + ' - reported by ' + name + '. Last seen: ' + where + (last ? '. Last used: ' + last : '');
+    const o = kc.open[norm_(key)];
+    let holderLine;
+    if (o) {
+      writeRow_(kc.log, o._row, { 'Status': 'Lost', 'Lost report': (String(o['Lost report'] || '').trim() ? String(o['Lost report']).trim() + ' || ' : '') + report });
+      holderLine = 'Signed out to ' + slackName_(kc, o.Staff) + ' since ' + when_(o['Out at']);
+    } else {
+      const row = { 'Out at': now, 'Key': key, 'Staff': '(not signed out)', 'Status': 'Lost', 'Callouts': 0, 'Lost report': report, 'Device': String(b.ua || '').slice(0, 160) };
+      kc.log.sh.appendRow(kc.log.head.map(h => (h in row ? row[h] : '')));
+      holderLine = 'Not signed out - missing from its spot';
+    }
+    const text = ':rotating_light: *Shed key missing - ' + key + '*\n' +
+      'Reported by ' + slackName_(kc, name) + ', ' + when_(now) + '\n' + holderLine + '\n' +
+      'Last seen: ' + where + (last ? ' · Last used: ' + last : '') + cc_(kc.s);
+    const posted = keySlack_(kc.s, text);
+    refreshKeysTab_(keyCtx_());
+    return { ok: true, key, posted };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Runs from tick() every 10 minutes. From the due time on the due day, every key still out is posted
+// once; then again at the due time each weekday while it is still out (KEY_REPEAT_DAILY).
+function keyCallouts_(opt) {
+  const ss = book_();
+  if (!ss.getSheetByName(TAB.KEYLOG)) return { text: '' };
+  const s = settings_();
+  if (!('KEY_DUE_DAY' in s)) return { text: '' };
+  const now = new Date();
+  const today = dayKey_(now);
+  if (!opt.force && Utilities.formatDate(now, TZ, 'HH:mm') < keyTime_(s)) return { text: '' };
+  const weekday = dowOf_(now) <= 5;
+  const repeat = bool_(s.KEY_REPEAT_DAILY);
+  const log = read_(TAB.KEYLOG);
+  const list = log.rows.filter(r => {
+    if (!isOpenKey_(r) || keyIsLost_(r)) return false;
+    const due = asDate_(r['Due back']);
+    if (!due || due > now) return false;
+    const lastDay = toKey_(r['Last callout']);
+    if (opt.force) return true;
+    if (lastDay === today) return false;
+    return !lastDay || (repeat && weekday);
+  }).sort((a, b) => (asDate_(a['Due back']) || 0) - (asDate_(b['Due back']) || 0));
+  if (!list.length) return { text: '' };
+
+  const ctx = { staff: read_(TAB.STAFF).rows, s };
+  const page = String(s.KEY_PAGE_URL || '').trim();
+  const lines = list.map(r => {
+    const due = asDate_(r['Due back']);
+    const days = dnum_(today) - dnum_(dayKey_(due));
+    const st = ctx.staff.find(x => norm_(x.Name) === norm_(r.Staff));
+    const link = page && st ? page + '?in&u=' + token_(st.Name, s) : page ? page + '?in' : '';
+    return '• ' + slackName_(ctx, r.Staff) + ' has *' + String(r.Key).trim() + '* - out since ' + when_(r['Out at']) +
+      (days > 0 ? ' · ' + days + (days === 1 ? ' day' : ' days') + ' overdue' : '') + (link ? ' · <' + link + '|scan it back in>' : '');
+  });
+  const text = ':key: *Shed ' + (list.length > 1 ? 'keys' : 'key') + ' not returned* - due back by ' + dueRule_(s) + '\n' + lines.join('\n') +
+    '\nBring it back and scan the KEY BACK code on the shed wall.' + cc_(s);
+  if (opt.dryRun) return { text };
+
+  if (!keySlack_(s, text)) return { text, posted: false };
+  const cCallouts = log.col('Callouts'), cLast = log.col('Last callout');
+  list.forEach(r => {
+    if (cCallouts > 0) log.sh.getRange(r._row, cCallouts).setValue(num_(r.Callouts, 0) + 1);
+    if (cLast > 0) log.sh.getRange(r._row, cLast).setValue(now);
+  });
+  try { refreshKeysTab_(keyCtx_()); } catch (e) { console.warn('keys tab ' + e); }
+  console.log('Key callout posted for ' + list.length + ' key(s).');
+  return { text, posted: true };
+}
+
+function cc_(s) {
+  const ids = String(s.KEY_ALERT_CC || '').split(/[\s,;]+/).filter(x => /^[UW][A-Z0-9]{6,}$/.test(x));
+  return ids.length ? '\ncc ' + ids.map(x => '<@' + x + '>').join(' ') : '';
+}
+
+function slackName_(ctx, name) {
+  const n = String(name || '').trim();
+  const st = (ctx.staff || []).find(x => norm_(x.Name) === norm_(n));
+  const id = st ? String(st['Slack ID'] || '').trim() : '';
+  return id ? '<@' + id + '>' : '*' + (n || 'Unknown') + '*';
+}
+
+function keySlack_(s, text) {
+  const hook = String(s.KEY_SLACK_WEBHOOK_URL || '').trim() || String(s.SLACK_WEBHOOK_URL || '').trim();
+  if (!hook) { console.warn('No Slack webhook in Settings - key post not sent:\n' + text); return false; }
+  try {
+    const res = UrlFetchApp.fetch(hook, { method: 'post', contentType: 'application/json', payload: JSON.stringify({ text, link_names: true }), muteHttpExceptions: true });
+    if (res.getResponseCode() === 200) return true;
+    console.warn('Slack returned ' + res.getResponseCode() + ': ' + res.getContentText());
+  } catch (e) {
+    console.warn('Slack post failed: ' + e);
+  }
+  return false;
+}
+
+// Status / With / Since / Due back on the Keys tab, so the sheet shows where every key is.
+function refreshKeysTab_(kc) {
+  const t = kc.keys;
+  const cols = ['Status', 'With', 'Since', 'Due back'].map(h => t.col(h));
+  if (cols.some(c => c < 1)) return;
+  t.rows.forEach(r => {
+    if (!String(r.Key || '').trim()) return;
+    const o = kc.open[norm_(r.Key)];
+    const due = o ? asDate_(o['Due back']) : null;
+    let status = 'In';
+    if (!keyActive_(r)) status = 'Not in use';
+    else if (o && keyIsLost_(o)) status = 'MISSING';
+    else if (o && due && due <= kc.now) status = 'OVERDUE';
+    else if (o) status = 'Out';
+    const vals = [status, o ? String(o.Staff || '').trim() : '', o ? asDate_(o['Out at']) || '' : '', due || ''];
+    cols.forEach((c, i) => t.sh.getRange(r._row, c).setValue(vals[i]));
+    const bg = { 'In': '#D9F2E3', 'Out': '#FFF1C2', 'OVERDUE': '#F8D0CC', 'MISSING': '#F8D0CC', 'Not in use': '#EEEEEE' }[status];
+    t.sh.getRange(r._row, cols[0]).setBackground(bg).setFontWeight(status === 'In' || status === 'Not in use' ? 'normal' : 'bold');
+  });
 }
 
 /* ------------------------------------------------------------- helpers */
