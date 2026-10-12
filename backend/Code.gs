@@ -63,6 +63,7 @@ const SEED_SETTINGS = [
   ['REMIND_REPEAT_DAYS', 7, 'Re-tag while still outstanding (and straight away when something goes overdue)'],
   ['REMIND_ON_DAYS', 'Mon,Tue,Wed,Thu,Fri', 'Days reminders can post (7am)'],
   ['RESIGN_ON_UPDATE', 'TRUE', 'When a document file is updated, everyone re-signs the new version'],
+  ['EASY_READ_FOLDER_ID', '1Lxh8A1-jVhK9uF0gHaZWKUAPIQpgV21h', 'Private folder for the phone-friendly copies of each document (made automatically)'],
   ['PIN_SALT', '', 'Do not change - makes each person\'s personal link (filled in by setup)']
 ];
 
@@ -265,6 +266,7 @@ function doGet(e) {
   try {
     if (!p.action || p.action === 'library') return json_(library_());
     if (p.action === 'ping') return json_({ ok: true, time: new Date().toISOString() });
+    if (p.action === 'doc') return json_(easyDoc_(p.code));
     return json_({ ok: false, error: 'Unknown action' });
   } catch (err) {
     return json_({ ok: false, error: msg_(err) });
@@ -438,11 +440,13 @@ function computeAll_(ctx) {
 /* ------------------------------------------------------- library sync */
 
 function tick() {
+  const started = Date.now();
   const props = PropertiesService.getScriptProperties();
   let changed = false;
   try { changed = syncLibrary_(); } catch (e) { console.error('sync failed: ' + e); }
   const today = dayKey_(new Date());
   if (changed || props.getProperty('dirty') === '1' || props.getProperty('lastRefresh') !== today) refreshOutputs_();
+  try { buildEasyRead_(4, started + 240000); } catch (e) { console.error('easy read failed: ' + e); }
 }
 
 function syncLibrary_() {
@@ -591,6 +595,122 @@ function cleanTitle_(fileName) {
     .replace(/[\s-]*\b(SOP|SWP|SWMS)\b\s*(draft)?$/i, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+/* ----------------------------------------------------------- easy read */
+// A phone-friendly copy of each live document: converted to a Google Doc, exported as HTML with
+// images inlined, saved in the private Easy read folder and served by doGet(action=doc).
+
+const EASY_READ_FOLDER_DEFAULT = '1Lxh8A1-jVhK9uF0gHaZWKUAPIQpgV21h';
+const EASY_CONVERTIBLE = /wordprocessingml|msword|application\/pdf|application\/rtf|opendocument\.text|text\/plain/;
+
+function easyKey_(code) { return 'er:' + String(code).trim().toUpperCase(); }
+
+function easyState_(code) {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(easyKey_(code)) || 'null'); } catch (e) { return null; }
+}
+
+function buildEasyRead_(maxDocs, deadline) {
+  const s = settings_();
+  const folderId = String(s.EASY_READ_FOLDER_ID || EASY_READ_FOLDER_DEFAULT).trim();
+  const props = PropertiesService.getScriptProperties();
+  const docs = read_(TAB.DOCS).rows.filter(isLive_);
+  const done = [];
+  for (let i = 0; i < docs.length; i++) {
+    if (done.length >= maxDocs || Date.now() > deadline) break;
+    const d = docs[i];
+    const code = String(d.Code).trim();
+    const ver = num_(d.Version, 1);
+    const fid = String(d['File ID']).trim();
+    const cur = easyState_(code);
+    if (cur && cur.v === ver && cur.src === fid) continue;
+    try {
+      const html = makeEasyRead_(fid, folderId);
+      const f = DriveApp.getFolderById(folderId).createFile(Utilities.newBlob(html, 'text/html', code + ' v' + ver + ' easy read.html'));
+      if (cur && cur.id) { try { DriveApp.getFileById(cur.id).setTrashed(true); } catch (e) {} }
+      props.setProperty(easyKey_(code), JSON.stringify({ id: f.getId(), v: ver, src: fid }));
+      done.push(code);
+    } catch (e) {
+      props.setProperty(easyKey_(code), JSON.stringify({ failed: String(e).slice(0, 200), v: ver, src: fid }));
+      done.push(code + ' (failed: ' + String(e).slice(0, 120) + ')');
+    }
+  }
+  if (done.length) console.log('Easy read: ' + done.join(', '));
+  return done;
+}
+
+function makeEasyRead_(fileId, folderId) {
+  const hdr = { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() };
+  const src = DriveApp.getFileById(fileId);
+  const mime = src.getMimeType();
+  let docId = fileId;
+  let temp = '';
+  if (mime !== MimeType.GOOGLE_DOCS) {
+    if (!EASY_CONVERTIBLE.test(mime)) throw new Error('file type not supported: ' + mime);
+    const res = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '/copy?fields=id&supportsAllDrives=true', {
+      method: 'post', contentType: 'application/json', headers: hdr, muteHttpExceptions: true,
+      payload: JSON.stringify({ name: 'tmp easy read - ' + src.getName(), mimeType: MimeType.GOOGLE_DOCS, parents: [folderId] })
+    });
+    if (res.getResponseCode() !== 200) throw new Error('convert ' + res.getResponseCode() + ' ' + res.getContentText().slice(0, 160));
+    docId = temp = JSON.parse(res.getContentText()).id;
+  }
+  try {
+    const ex = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + docId + '/export?mimeType=application%2Fzip', { headers: hdr, muteHttpExceptions: true });
+    if (ex.getResponseCode() !== 200) throw new Error('export ' + ex.getResponseCode() + ' ' + ex.getContentText().slice(0, 160));
+    const parts = Utilities.unzip(ex.getBlob().setContentType('application/zip'));
+    const page = parts.filter(b => /\.html?$/i.test(b.getName()))[0];
+    if (!page) throw new Error('export had no HTML');
+    let html = page.getDataAsString('UTF-8');
+    parts.forEach(b => {
+      const nm = b.getName();
+      if (!/\.(png|jpe?g|gif|bmp)$/i.test(nm)) return;
+      const base = nm.split('/').pop();
+      const type = /png$/i.test(nm) ? 'image/png' : /gif$/i.test(nm) ? 'image/gif' : /bmp$/i.test(nm) ? 'image/bmp' : 'image/jpeg';
+      html = html.split('images/' + base).join('data:' + type + ';base64,' + Utilities.base64Encode(b.getBytes()));
+    });
+    return cleanEasyRead_(html);
+  } finally {
+    if (temp) { try { DriveApp.getFileById(temp).setTrashed(true); } catch (e) {} }
+  }
+}
+
+function cleanEasyRead_(html) {
+  const styles = (html.match(/<style[^>]*>[\s\S]*?<\/style>/gi) || []).join('\n');
+  const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+  let body = m ? m[1] : html;
+  body = body
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<(iframe|object|embed|form|link|meta)[^>]*>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/href\s*=\s*("|')\s*javascript:[^"']*\1/gi, 'href="#"');
+  return '<!doctype html><html><head><meta charset="utf-8">' + styles + '</head><body class="doc-content">' + body + '</body></html>';
+}
+
+function easyDoc_(code) {
+  const c = String(code || '').trim().toUpperCase();
+  const d = read_(TAB.DOCS).rows.filter(isLive_).filter(r => String(r.Code).trim().toUpperCase() === c)[0];
+  if (!d) return { ok: false, error: 'Document not found' };
+  const cur = easyState_(c);
+  if (!cur || !cur.id || cur.v !== num_(d.Version, 1) || cur.src !== String(d['File ID']).trim()) return { ok: true, html: '' };
+  const cache = CacheService.getScriptCache();
+  const key = 'erh:' + cur.id;
+  const hit = cache.get(key);
+  if (hit) return { ok: true, html: hit, version: cur.v };
+  const html = DriveApp.getFileById(cur.id).getBlob().getDataAsString('UTF-8');
+  try { if (html.length < 90000) cache.put(key, html, 21600); } catch (e) {}
+  return { ok: true, html, version: cur.v };
+}
+
+// Manual run: build any missing phone-friendly copies now (also retries ones that failed).
+function buildEasyReadNow() {
+  const s = settings_();
+  if (!String(s.EASY_READ_FOLDER_ID || '').trim()) setSetting_('EASY_READ_FOLDER_ID', EASY_READ_FOLDER_DEFAULT);
+  const props = PropertiesService.getScriptProperties();
+  Object.keys(props.getProperties()).forEach(k => {
+    if (k.indexOf('er:') === 0) { const v = easyState_(k.slice(3)); if (v && v.failed) props.deleteProperty(k); }
+  });
+  const done = buildEasyRead_(50, Date.now() + 300000);
+  console.log(done.length ? 'Built: ' + done.join(', ') : 'All phone-friendly copies are up to date.');
 }
 
 // One-off tidy: strip a leading/trailing SOP/SWP from titles of documents added from Drive.
