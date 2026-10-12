@@ -67,15 +67,26 @@
         <div class="v-meta" id="vMeta"></div>
         <h2 id="vTitle"></h2>
       </div>
-      <a id="vOpen" class="v-open" target="_blank" rel="noopener">Open full screen</a>
+      <div class="v-tools">
+        <div class="seg" id="vModes" role="group" aria-label="View">
+          <button type="button" id="vModeEasy" aria-pressed="true">Easy read</button>
+          <button type="button" id="vModeOrig" aria-pressed="false">Original</button>
+        </div>
+        <a id="vOpen" class="v-open" target="_blank" rel="noopener" aria-label="Open in a new tab">↗</a>
+      </div>
     </div>
     <div class="v-body">
+      <div class="v-loading" id="vLoading" hidden>Loading…</div>
+      <iframe id="vEasy" title="Document (easy read)" sandbox="allow-popups allow-popups-to-escape-sandbox" hidden></iframe>
       <iframe id="vFrame" title="Document" allow="autoplay"></iframe>
     </div>
     <div class="v-sign" id="vSign">
       <div class="timer" id="vTimer">
         <div class="bar"><span id="vBar"></span></div>
-        <div class="timer-text" id="vTimerText"></div>
+        <div class="timer-row">
+          <span class="timer-text" id="vTimerText"></span>
+          <button type="button" class="btn primary small" id="vReady" hidden>Ready to sign</button>
+        </div>
       </div>
       <div id="vForm" hidden>
         <label class="check"><input type="checkbox" id="vDeclare"> <span id="vDeclText"></span></label>
@@ -85,9 +96,12 @@
           <button type="button" class="link-btn sig-clear" id="sigClear">Clear</button>
         </div>
         <p id="vErr" class="err" role="alert"></p>
-        <button type="button" class="btn primary wide" id="vSubmit" disabled>Sign</button>
+        <div class="form-actions">
+          <button type="button" class="btn ghost" id="vKeepReading">Keep reading</button>
+          <button type="button" class="btn primary" id="vSubmit" disabled>Sign</button>
+        </div>
       </div>
-      <div id="vNeedSignin" class="muted" hidden>Sign in on the main page to sign this document.</div>
+      <div id="vNeedSignin" class="muted small-text" hidden>Pick your name on the main page to sign this document.</div>
       <div id="vDone" class="done" hidden></div>
     </div>
   </div>

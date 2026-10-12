@@ -269,6 +269,75 @@
     if (m && lib && !current) openDoc(m[1].toUpperCase(), false);
   }
 
+  var EASY_CSS = [
+    'html{-webkit-text-size-adjust:100%}',
+    'body,body.doc-content{max-width:none!important;margin:0!important;padding:16px 16px 48px!important;background:#fff!important;color:#1b1f1d;',
+    'font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif!important}',
+    'p,li,td,th,span,a{font-size:16px!important;line-height:1.45!important;font-family:inherit!important}',
+    'p{margin:0 0 6px!important;text-indent:0!important}',
+    'li{margin-left:0!important}',
+    'ul,ol{padding-left:22px!important;margin:4px 0 8px!important}',
+    'li p, li span{margin:0!important}',
+    'h1,h2,h3,h4{line-height:1.25!important;margin:14px 0 6px!important}',
+    'h1 span,h2 span{font-size:20px!important}h3 span,h4 span{font-size:17px!important}',
+    'table{width:100%!important;max-width:100%!important;margin:0 0 14px!important;border-collapse:collapse!important}',
+    'tr{height:auto!important}',
+    'td,th{width:auto!important;height:auto!important;padding:8px 10px!important;vertical-align:top!important}',
+    'img{max-width:100%!important;height:auto!important;margin:0!important;transform:none!important}',
+    'span[style*="inline-block"]{width:auto!important;height:auto!important;max-width:100%!important;margin:0!important;transform:none!important}',
+    '@media (max-width:640px){',
+    /* one- and two-column tables are page layout (logo | title, photo | hazards): stack them */
+    ' table:not(:has(td:nth-child(3))),table:not(:has(td:nth-child(3))) > tbody,table:not(:has(td:nth-child(3))) tr{display:block!important;width:100%!important}',
+    ' table:not(:has(td:nth-child(3))) td{display:block!important;width:100%!important;box-sizing:border-box!important}',
+    /* wider tables are real grids (PPE icons, checklists): keep the grid, smaller text, scroll sideways if needed */
+    ' table:has(td:nth-child(3)){display:block!important;overflow-x:auto!important;-webkit-overflow-scrolling:touch}',
+    ' table:has(td:nth-child(3)) td{padding:6px!important}',
+    ' table:has(td:nth-child(3)) td p,table:has(td:nth-child(3)) td span{font-size:13px!important;line-height:1.3!important}',
+    ' table:has(td:nth-child(5)) img{max-width:52px!important}',
+    '}'
+  ].join('\n');
+
+  var easyCache = {};
+  var mode = 'auto';
+
+  function preferEasy() {
+    if (mode !== 'auto') return mode === 'easy';
+    return window.innerWidth <= 760;
+  }
+
+  function setMode(easy) {
+    $('vModeEasy').setAttribute('aria-pressed', String(easy));
+    $('vModeOrig').setAttribute('aria-pressed', String(!easy));
+    $('vEasy').hidden = !easy;
+    $('vFrame').hidden = easy;
+  }
+
+  function showEasy(d) {
+    var key = d.code + '@' + d.version;
+    var render = function (html) {
+      if (!current || current.code !== d.code) return;
+      $('vLoading').hidden = true;
+      if (!html) {               // no phone copy yet: fall back to the original
+        $('vModes').hidden = true;
+        setMode(false);
+        return;
+      }
+      $('vModes').hidden = false;
+      var doc = html.replace(/<head>/i, '<head><meta name="viewport" content="width=device-width, initial-scale=1"><base target="_blank"><style>' + EASY_CSS + '</style>');
+      if ($('vEasy').getAttribute('data-key') !== key) { $('vEasy').srcdoc = doc; $('vEasy').setAttribute('data-key', key); }
+      setMode(preferEasy());
+    };
+    if (easyCache[key] !== undefined) { render(easyCache[key]); return; }
+    $('vLoading').hidden = !preferEasy();
+    fetch(API + '?action=doc&code=' + encodeURIComponent(d.code), { redirect: 'follow' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) { easyCache[key] = (res && res.ok && res.html) || ''; render(easyCache[key]); })
+      .catch(function () { render(''); });
+  }
+
+  $('vModeEasy').addEventListener('click', function () { mode = 'easy'; setMode(true); });
+  $('vModeOrig').addEventListener('click', function () { mode = 'orig'; setMode(false); });
+
   function openDoc(code, push) {
     var d = lib.docs.filter(function (x) { return x.code === code; })[0];
     if (!d) return;
@@ -280,9 +349,13 @@
     meta.appendChild(rk);
     $('vFrame').src = d.preview;
     $('vOpen').href = d.open || d.preview;
+    $('vModes').hidden = true;
+    $('vEasy').hidden = true;
+    $('vFrame').hidden = preferEasy();
     $('viewer').hidden = false;
     document.body.style.overflow = 'hidden';
     if (push) { try { history.pushState({ doc: code }, '', '?doc=' + encodeURIComponent(code)); pushed = true; } catch (e) {} }
+    showEasy(d);
 
     $('vDone').hidden = true;
     $('vErr').textContent = '';
@@ -291,8 +364,16 @@
     var signable = !!me;
     $('vNeedSignin').hidden = signable;
     $('vTimer').hidden = !signable;
+    $('vReady').hidden = true;
     $('vForm').hidden = true;
+    $('viewer').classList.remove('signing');
     if (!signable) return;
+    var item = me.items[d.code];
+    if (item && item.required && item.status === 'Current') {
+      $('vTimerText').textContent = '✓ Signed — current until ' + fmt(item.validUntil);
+      $('vBar').style.width = '100%';
+      return;
+    }
     startTimer(d.readSeconds);
   }
 
@@ -304,22 +385,38 @@
       var left = Math.max(0, Math.ceil(need - secs));
       $('vBar').style.width = Math.min(100, secs / need * 100) + '%';
       if (left > 0) {
-        $('vTimerText').textContent = 'Read it through. Signing opens in ' + Math.floor(left / 60) + ':' + ('0' + (left % 60)).slice(-2);
+        $('vTimerText').textContent = 'Read it through · signing opens in ' + Math.floor(left / 60) + ':' + ('0' + (left % 60)).slice(-2);
       } else {
-        $('vTimerText').textContent = 'Done reading? Tick the box, sign and submit.';
-        if ($('vForm').hidden) { $('vForm').hidden = false; sizeSig(); }
+        $('vTimerText').textContent = 'Read it all?';
+        $('vReady').hidden = false;
         stopTimer();
       }
-      updateSubmit();
     };
     tick();
     timer = setInterval(tick, 500);
   }
   function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
 
+  $('vReady').addEventListener('click', function () {
+    $('vReady').hidden = true;
+    $('vTimer').hidden = true;
+    $('vForm').hidden = false;
+    $('viewer').classList.add('signing');
+    sizeSig();
+    updateSubmit();
+  });
+
+  $('vKeepReading').addEventListener('click', function () {
+    $('vForm').hidden = true;
+    $('vTimer').hidden = false;
+    $('vReady').hidden = false;
+    $('viewer').classList.remove('signing');
+  });
+
   function closeViewer() {
     stopTimer();
     $('viewer').hidden = true;
+    $('viewer').classList.remove('signing');
     $('vFrame').src = 'about:blank';
     document.body.style.overflow = '';
     current = null;
@@ -350,6 +447,7 @@
     }).then(function (r) {
       $('vForm').hidden = true;
       $('vTimer').hidden = true;
+      $('viewer').classList.remove('signing');
       var done = $('vDone');
       done.innerHTML = '';
       var tk = document.createElement('div'); tk.className = 'tick'; tk.textContent = '✓';
