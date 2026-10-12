@@ -283,17 +283,18 @@
     'table{width:100%!important;max-width:100%!important;margin:0 0 14px!important;border-collapse:collapse!important}',
     'tr{height:auto!important}',
     'td,th{width:auto!important;height:auto!important;padding:8px 10px!important;vertical-align:top!important}',
-    'img{max-width:100%!important;height:auto!important;margin:0!important;transform:none!important}',
+    '[style*="justify"]{text-align:left!important}',
+    'img{width:auto!important;height:auto!important;max-width:100%!important;max-height:170px!important;object-fit:contain;margin:0!important;transform:none!important}',
     'span[style*="inline-block"]{width:auto!important;height:auto!important;max-width:100%!important;margin:0!important;transform:none!important}',
     '@media (max-width:640px){',
-    /* one- and two-column tables are page layout (logo | title, photo | hazards): stack them */
-    ' table:not(:has(td:nth-child(3))),table:not(:has(td:nth-child(3))) > tbody,table:not(:has(td:nth-child(3))) tr{display:block!important;width:100%!important}',
-    ' table:not(:has(td:nth-child(3))) td{display:block!important;width:100%!important;box-sizing:border-box!important}',
-    /* wider tables are real grids (PPE icons, checklists): keep the grid, smaller text, scroll sideways if needed */
-    ' table:has(td:nth-child(3)){display:block!important;overflow-x:auto!important;-webkit-overflow-scrolling:touch}',
-    ' table:has(td:nth-child(3)) td{padding:6px!important}',
-    ' table:has(td:nth-child(3)) td p,table:has(td:nth-child(3)) td span{font-size:13px!important;line-height:1.3!important}',
-    ' table:has(td:nth-child(5)) img{max-width:52px!important}',
+    ' table,tbody{display:block!important;width:100%!important}',
+    /* each row becomes a strip; cells stack (logo | title, photo | hazards, dates) */
+    ' tr{display:flex!important;flex-wrap:wrap!important;width:100%!important}',
+    ' td{flex:1 1 100%!important;box-sizing:border-box!important;min-width:0!important}',
+    /* rows of 4+ short cells (PPE icons and their labels) stay side by side so icons line up with labels */
+    ' tr:has(> td:nth-child(4)) > td{flex:1 1 0!important;padding:6px 2px!important;text-align:center!important}',
+    ' tr:has(> td:nth-child(4)) > td p,tr:has(> td:nth-child(4)) > td span{font-size:11.5px!important;line-height:1.25!important;text-align:center!important}',
+    ' tr:has(> td:nth-child(4)) img{max-width:46px!important;max-height:46px!important}',
     '}'
   ].join('\n');
 
