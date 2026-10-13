@@ -32,6 +32,22 @@ Weekend spare key register: https://andranf.github.io/ranfurlie-safety/keys.html
 - **Lost or missing key:** reported from the return page; Slack alert goes straight away and the key shows as MISSING until it is returned.
 - **Keys tab:** one row per key (name must match the key tag). Status / With / Since / Due back fill in automatically. Settings: `KEY_SWP_CODE`, `KEY_SWP_REQUIRED`, `KEY_DUE_DAY`, `KEY_DUE_TIME`, `KEY_REPEAT_DAILY`, `KEY_ALERT_CC`, `KEY_SLACK_WEBHOOK_URL` (blank = same channel as the safety reminders).
 
+## TurfDog pre-starts and machine SWPs
+
+An hourly Claude scheduled task (6:05am to 2:05pm, every day) opens TurfDog in Chrome on the shed PC, loads `tools/turfdog-prestart.js` into the page and reads:
+
+- today's **whiteboard**, shifts 1 to 3: who is on which task with which machine
+- the **pre-check log** (Staff > Safety > Safety Checklists > Pre-Check): today's pre-starts, and which reported a fault (Issues only)
+
+and posts both to the web app (`action: prestart`, with the `PRESTART_KEY` from Settings). The backend:
+
+- logs every pre-start in the **Pre-starts** tab and every person/machine booking in **Machine Bookings** (Pre-start Done / Not done / Not due yet / Not needed, and that machine's SWP status for that person)
+- links machines to SWPs on the **Machines** tab (seeded with TurfDog's equipment list; new machines are added the first day they're booked, with the SWP left for you to fill in)
+- builds the Slack posts. The task posts them in #safe-work-procedures: the first time each day someone is on a machine with no pre-start, they're tagged in one post (plus anyone booked on a machine whose SWP they haven't signed). Each hour after that, anyone still outstanding is tagged again in that post's thread, with Neil and Ben cc'd from the second reminder. When everyone's done the thread gets "All pre-starts done".
+- DMs Andrew straight away when a pre-start reports a fault, and once after 1:30pm with the day's summary (never done, done on a different machine to the board, checklist that doesn't match the machine, booked machines with no SWP linked, names not on the Staff tab).
+
+Settings: `PRESTART_SHIFT_FROM` (when each shift's machines are chased), `PRESTART_ESCALATE_AFTER`, `PRESTART_CC`, `PRESTART_SKIP_TASKS` (e.g. Workshop), `PRESTART_MATCH` (`type`: a pre-start on another machine of the same Type counts; `exact`: only the booked machine), `PRESTART_SWP`, `PRESTART_SUMMARY_AFTER`. TurfDog names are matched to the Staff tab (Josh = Joshua, Michael Kruse = Michael K); use the Staff tab's *TurfDog name* column for anyone who doesn't match.
+
 ## Updating the backend
 
 Copy `backend/Code.gs` into the sheet's Apps Script editor, save, then **Deploy > Manage deployments > Edit > New version** so the web app URL stays the same.

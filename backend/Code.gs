@@ -34,11 +34,15 @@ function book_() { return BOOK_ || (BOOK_ = SpreadsheetApp.openById(SHEET_ID)); 
 const TAB = {
   MATRIX: 'Matrix', REGISTER: 'Register', STAFF: 'Staff', DOCS: 'Documents', QUIZ: 'Questions',
   REMINDERS: 'Reminders', SETTINGS: 'Settings', README: 'Read me',
-  KEYS: 'Keys', KEYLOG: 'Key Log'
+  KEYS: 'Keys', KEYLOG: 'Key Log',
+  PRESTARTS: 'Pre-starts', BOOKINGS: 'Machine Bookings', MACHINES: 'Machines'
 };
 const HEAD = {
   Register: ['Signed at', 'Receipt', 'Staff', 'Code', 'Document', 'Version', 'Risk', 'Valid until', 'Read time (sec)', 'Signature', 'Declaration', 'Device', 'Knowledge check'],
-  Staff: ['Name', 'Slack ID', 'Role', 'Site', 'Groups', 'PIN', 'Active', 'Start date', 'Notes'],
+  Staff: ['Name', 'Slack ID', 'Role', 'Site', 'Groups', 'PIN', 'Active', 'Start date', 'Notes', 'TurfDog name'],
+  'Pre-starts': ['Done at', 'Staff', 'Machine', 'Checklist', 'Items', 'Issues', 'On the board', 'Logged at'],
+  'Machine Bookings': ['Date', 'Shift', 'Task', 'Staff', 'Machine', 'Pre-start', 'Pre-start at', 'SWP', 'SWP status', 'Reminders', 'Last reminder', 'Notes'],
+  Machines: ['Machine', 'Model', 'Type', 'SWP', 'Pre-start', 'Last booked', 'Last pre-start', 'Notes'],
   Documents: ['Code', 'Title', 'Category', 'Risk', 'Applies to', 'Renew (months)', 'Read time (sec)', 'Summary', 'Status', 'Version', 'Updated', 'File ID', 'File name', 'Link', 'Added', 'Notes'],
   Questions: ['Code', 'No.', 'Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Answer', 'Why'],
   Reminders: ['Sent at', 'Staff', 'Slack ID', 'Overdue', 'Due', 'Codes'],
@@ -93,7 +97,164 @@ const SEED_SETTINGS = [
   ['INSP_ALERT_CC', 'U06BCCG4HT9 U06NBNSR9LG U06FJ0J1RH8', 'Slack IDs tagged on High defects and overdue inspections (Andrew, Ben, Neil)'],
   ['INSP_SLACK_WEBHOOK_URL', '', 'Webhook for inspection posts - leave blank to use SLACK_WEBHOOK_URL'],
   ['INSP_PHOTO_FOLDER_ID', '', 'Drive folder for defect photos (made automatically, view-by-link so the dashboard can show them)'],
-  ['INSP_GO_LIVE', '', 'Inspections started (filled in automatically). The first one is due a week after this']
+  ['INSP_GO_LIVE', '', 'Inspections started (filled in automatically). The first one is due a week after this'],
+  ['PRESTART_KEY', '', 'Key the hourly TurfDog pre-start task sends with its data (filled in by setupPrestart). Keep it private'],
+  ['PRESTART_SHIFT_FROM', '1=06:00, 2=10:00, 3=12:00', 'Chase pre-starts for machines on each TurfDog shift from this time (24 h)'],
+  ['PRESTART_ESCALATE_AFTER', 2, 'From this reminder on, PRESTART_CC are tagged too (the first post counts as reminder 1)'],
+  ['PRESTART_CC', 'U06FJ0J1RH8 U06NBNSR9LG', 'Slack IDs tagged when a pre-start is still not done (Neil, Ben)'],
+  ['PRESTART_SKIP_TASKS', 'Workshop', 'TurfDog tasks where a booked machine needs no pre-start, e.g. servicing it in the workshop (comma list)'],
+  ['PRESTART_MATCH', 'type', 'type = a pre-start on another machine of the same Type (Machines tab) counts. exact = it must be the booked machine'],
+  ['PRESTART_SWP', 'TRUE', 'Once a day, tag people booked on a machine whose SWP they still have to sign (or is overdue)'],
+  ['PRESTART_SUMMARY_AFTER', '13:30', 'The first run after this time sends Andrew the day\'s pre-start summary (once a day)']
+];
+
+// TurfDog machines (equipment list, 13 Oct 2026) -> the SWP that covers them. Machine = the name exactly as TurfDog shows it.
+// Type: a pre-start on any machine of the same Type counts (Settings PRESTART_MATCH). Pre-start FALSE = never chased.
+// Machines added to TurfDog later are added automatically on the first day they're booked.
+const SEED_MACHINES = [
+  ["1000L Tank 1", "Silvan 1000L Tank", "1000L Tank", "", true, "", "", ""],
+  ["1000L Tank 2", "Silvan 1000L Tank", "1000L Tank", "", true, "", "", ""],
+  ["2000L Tank 1", "Silvan 2000L Tank", "2000L Tank", "", true, "", "", ""],
+  ["200L Tank 1", "Silvan 200L Tank", "200L Tank", "", true, "", "", ""],
+  ["350W 1", "Electric Chainsaw Sharpener 350W", "350W", "", true, "", "", ""],
+  ["5800", "Toro Multi Pro 5800-D", "5800", "", true, "", "", ""],
+  ["600L Spray Tank 1", "Silvan 600L Spray Tank", "600L Spray Tank", "", true, "", "", ""],
+  ["600L Spray Tank 2", "Silvan 600L Spray Tank", "600L Spray Tank", "", true, "", "", ""],
+  ["Air Compressor 1", "McMillan Air Compressor", "Air Compressor", "", true, "", "", ""],
+  ["Air2G2 Probe 1", "Sustainable Machinery Air2G2 Probe", "Air2G2 Probe", "", true, "", "", ""],
+  ["Amstel Zero Turn 1", "Victa ZTX", "Amstel Zero Turn", "", true, "", "", ""],
+  ["Autonomous picker 1", "FJDynamics Autonomous picker", "Autonomous picker", "", true, "", "", ""],
+  ["Backpack Blower 1", "Husqvarna Backpack Blower", "Backpack Blower", "", true, "", "", ""],
+  ["Backpack Blower 1", "Kress Backpack Blower", "Backpack Blower", "", true, "", "", ""],
+  ["Backpack Blower 2", "Kress Backpack Blower", "Backpack Blower", "", true, "", "", ""],
+  ["Backpack Sprayer 15L 1", "Milwaukee Sprayer 15L", "Backpack Sprayer 15L", "", true, "", "", ""],
+  ["Backpack Sprayer 15L 2", "Milwaukee Sprayer 15L", "Backpack Sprayer 15L", "", true, "", "", ""],
+  ["Backpack Sprayer 15L 3", "Milwaukee Sprayer 15L", "Backpack Sprayer 15L", "", true, "", "", ""],
+  ["Backpack Sprayer 15L 4", "Milwaukee Sprayer 15L", "Backpack Sprayer 15L", "", true, "", "", ""],
+  ["Blower 1", "Toro Pro Force 44552", "Blower", "", true, "", "", ""],
+  ["Blower 2", "Toro Pro Force 44552", "Blower", "", true, "", "", ""],
+  ["Boom Kleen 1", "Barmac Boom Kleen", "Boom Kleen", "", true, "", "", ""],
+  ["Brandt Mechanic Works 1", "John Deere Brandt Mechanic Works", "Brandt Mechanic Works", "", false, "", "", ""],
+  ["Bucket Loader 1", "Titan Bucket Loader", "Bucket Loader", "", true, "", "", ""],
+  ["Bunker Rake 1", "Toro Sand Pro 3040", "Bunker rake", "SWP-08", true, "", "", "Sand Pro 3040 - check SWP-08 covers it"],
+  ["Dozer blade 1", "Melbourne Tractor Dozer blade", "Dozer blade", "", true, "", "", ""],
+  ["Drainage Sand 1", "Sandbelt Industries Drainage Sand", "Drainage Sand", "", false, "", "", ""],
+  ["Drop saw 1", "Ozita Drop saw", "Drop saw", "", true, "", "", ""],
+  ["Edger 1", "Atom Edger", "Edger", "", true, "", "", ""],
+  ["Electric Blower 1", "Milwaukee Electric Blower", "Electric Blower", "", true, "", "", ""],
+  ["Electric Blower 2", "Milwaukee Electric Blower", "Electric Blower", "", true, "", "", ""],
+  ["Electric Blower Single 1", "Milwaukee E-Blower Single", "Electric Blower Single", "", true, "", "", ""],
+  ["Electric Blower Single 2", "Milwaukee E-Blower Single", "Electric Blower Single", "", true, "", "", ""],
+  ["Electric Whipper Snipper 1", "Milwaukee Electric Whipper Snipper", "Electric Whipper Snipper", "", true, "", "", ""],
+  ["ENZED Repair Works 1", "ENZED Repair Works", "ENZED Repair Works", "", false, "", "", ""],
+  ["Excavator 1", "Kobelco SK35SR-7", "Excavator", "SWP-07", true, "", "", ""],
+  ["Fert Spreader 1", "Gamberini Fert Spreader", "Fert Spreader", "", true, "", "", ""],
+  ["Flowsmart 1", "ICL H2Pro Flowsmart", "Flowsmart", "", false, "", "", ""],
+  ["Fly Mow 1", "Toro HoverPro 450", "Fly Mow", "", true, "", "", ""],
+  ["Gas Gun 1", "Hunter Gas Gun", "Gas Gun", "", true, "", "", ""],
+  ["GPS/Rover Kit 1", "GPS/Rover Kit", "GPS/Rover Kit", "", false, "", "", ""],
+  ["Green Sprayer 1", "BA Pumps GK75 Greens Keeper", "Green Sprayer", "", true, "", "", ""],
+  ["Greens Mower - Electric Walk Behind 1", "Toro Greensmaster eFlex 1021", "Greens Mower - Electric Walk Behind", "", true, "", "", ""],
+  ["Greens Mower - Walk Behind 1", "Toro Greensmaster Flex 2120", "Greens Mower - Walk Behind", "", true, "", "", ""],
+  ["Greens Mower - Walk Behind 2", "Toro Greensmaster Flex 2120", "Greens Mower - Walk Behind", "", true, "", "", ""],
+  ["Greens Mower - Walk Behind 3", "Toro Greensmaster Flex 2120", "Greens Mower - Walk Behind", "", true, "", "", ""],
+  ["Greens Mower - Walk Behind 4", "Toro Greensmaster Flex 2120", "Greens Mower - Walk Behind", "", true, "", "", ""],
+  ["Greens Mower - Walk Behind 5", "Toro Greensmaster Flex 2120", "Greens Mower - Walk Behind", "", true, "", "", ""],
+  ["Greens Mower - Walk Behind 6", "Toro Greensmaster Flex 2120", "Greens Mower - Walk Behind", "", true, "", "", ""],
+  ["Greens Roller 1", "Tru-Turf RE50", "Greens Roller", "", true, "", "", ""],
+  ["Greens Roller 2", "Tru-Turf RE50", "Greens Roller", "", true, "", "", ""],
+  ["Greensmower Trailers 1", "Toro Greensmower Trailers", "Greensmower Trailers", "", true, "", "", ""],
+  ["Greensmower Trailers 2", "Toro Greensmower Trailers", "Greensmower Trailers", "", true, "", "", ""],
+  ["Groundsmaster 4300 1", "Toro Groundsmaster 4300-D", "Groundsmaster 4300", "", true, "", "", ""],
+  ["GS3 Ball 1", "Deacon GS3 Ball", "GS3 Ball", "", false, "", "", ""],
+  ["Handheld Sprayer 7L 1", "Milwaukee Sprayer 7L", "Handheld Sprayer 7L", "", true, "", "", ""],
+  ["Hedge Trimmer 1", "Stihl Hedge Trimmer", "Hedge Trimmer", "", true, "", "", ""],
+  ["Hedge Trimmer 24\" 1", "Milwaukee Hedge trimmer 24\"", "Hedge Trimmer 24\"", "", true, "", "", ""],
+  ["Hoist", "Molnar Hoist", "Hoist", "", true, "", "", ""],
+  ["JD Greens Mower 1", "John Deere 2550 PrecisionCut", "JD Greens Mower", "SWP-05", true, "", "", ""],
+  ["JD Sprayer 1", "John Deere HD200 Sprayer on ProGator 2030A", "JD Sprayer", "", true, "", "", ""],
+  ["Kress charging station 1", "Kress charging station", "Kress charging station", "", false, "", "", ""],
+  ["L5740 1", "Kubota L5740 HST", "L5740", "", true, "", "", ""],
+  ["Locator Kit 1", "Leica Locator Kit", "Locator Kit", "", false, "", "", ""],
+  ["Massey FL 2850 1", "Massey Ferguson 2850M FL loader", "Massey FL 2850", "", true, "", "", ""],
+  ["Milwaukee Chainsaw 1", "Milwaukee Chainsaw", "Milwaukee Chainsaw", "", true, "", "", ""],
+  ["Milwaukee Cut-off 1", "Milwaukee Cut-off", "Milwaukee Cut-off", "", true, "", "", ""],
+  ["Milwaukee Hole Dozer 1", "Milwaukee Hole Dozer", "Milwaukee Hole Dozer", "", true, "", "", ""],
+  ["Milwaukee Polisher 1", "Milwaukee Polisher", "Milwaukee Polisher", "", true, "", "", ""],
+  ["Misc 1", "Ranfurlie Misc", "Misc", "", false, "", "", ""],
+  ["Moisture Probe 1", "Field Scout Moisture Probe", "Moisture Probe", "", false, "", "", ""],
+  ["Moisture Probe 2", "Field Scout TDR250", "Moisture Probe", "", false, "", "", ""],
+  ["Mower - Walk Behind 1", "Kress / Victa / Masport walk-behind mower", "Mower - Walk Behind", "", true, "", "", ""],
+  ["Per 4 Max 1", "Floratine Per 4 Max", "Per 4 Max", "", false, "", "", ""],
+  ["Petro Vibratory Compactor 1", "Wacker Neuson Vibratory Compactor", "Petro Vibratory Compactor", "", true, "", "", ""],
+  ["Petrol Roller 1", "Tru Turf Petrol Roller", "Petrol Roller", "", true, "", "", ""],
+  ["Petrol Tiller 1", "Husqvarna Petrol Tiller", "Petrol Tiller", "", true, "", "", ""],
+  ["Pole Saw Attachment 1", "Milwaukee Pole Saw Attachment", "Pole Saw Attachment", "", true, "", "", ""],
+  ["Power Head 1", "Milwaukee Power Head", "Power Head", "", true, "", "", ""],
+  ["ProCore 648s 1", "Toro ProCore 648s", "ProCore 648s", "", true, "", "", ""],
+  ["Quik-Lok Rubber Broom 1", "Milwaukee Quik-Lok Rubber Broom", "Quik-Lok Rubber Broom", "", true, "", "", ""],
+  ["Range Pro 100 Ball collector 1", "Toro Range Pro 100", "Range Pro 100 Ball collector", "", true, "", "", ""],
+  ["Reciprocating Saw 1", "Milwaukee Reciprocating Saw", "Reciprocating Saw", "", true, "", "", ""],
+  ["Reelmaster 5010 Fairway Mower 1", "Toro Reelmaster 5010-H", "Reelmaster 5010 Fairway Mower", "SWP-06", true, "", "", ""],
+  ["Reelmaster 5010 Fairway Mower 2", "Toro Reelmaster 5010-H", "Reelmaster 5010 Fairway Mower", "SWP-06", true, "", "", ""],
+  ["Reelmaster 5010 Fairway Mower 3", "Toro Reelmaster 5010-H", "Reelmaster 5010 Fairway Mower", "SWP-06", true, "", "", ""],
+  ["Repair Works 1", "Melbourne Tractors / Toro Repair Works", "Repair Works", "", false, "", "", ""],
+  ["RMS Kit 1", "Turf Troniq RMS Kit", "RMS Kit", "", false, "", "", ""],
+  ["Robotic mower 1", "Kress Robotic mower", "Robotic mower", "", true, "", "", ""],
+  ["Rough Mower 1", "Toro Rough Mower", "Rough Mower", "", true, "", "", ""],
+  ["Sand 1", "Sandbelt Industries Sand", "Sand", "", false, "", "", ""],
+  ["SandPro 5040 1", "Toro Sand Pro 5040", "Bunker rake", "SWP-08", true, "", "", ""],
+  ["Seeder 1", "1st Products UA60 Aera-Vator", "Seeder", "", true, "", "", ""],
+  ["Seeder Shaft 1", "Aust Agri Seeder Shaft", "Seeder Shaft", "", true, "", "", ""],
+  ["Shole Holecutter System 1", "Tacit Shole Holecutter System", "Shole Holecutter System", "", true, "", "", ""],
+  ["Shole Holecutter System 2", "Tacit Shole Holecutter System", "Shole Holecutter System", "", true, "", "", ""],
+  ["Slasher VIN 1831 1", "Silvan Slasher", "Slasher VIN 1831", "", true, "", "", ""],
+  ["Small Verti-Drain 1", "Redexim Small Verti-Drain", "Small Verti-Drain", "", true, "", "", ""],
+  ["Sod Cutter 1", "Ryan Jr. Sod Cutter", "Sod Cutter", "", true, "", "", ""],
+  ["Spray Sheet 1", "Spray Log Spray Sheet", "Spray Sheet", "", false, "", "", ""],
+  ["Spraying 1", "Chemical mixing area SOP", "Spraying", "", false, "", "", ""],
+  ["Stihl Invoices 1", "Stihl Invoices", "Stihl Invoices", "", false, "", "", ""],
+  ["Surrounds Mower 1", "John Deere 8000A E-Cut Hybrid", "Surrounds Mower", "SWP-04", true, "", "", ""],
+  ["Terra Rake 2.3m 1", "Wiedenmann Terra Rake 230", "Terra Rake 2.3m", "", true, "", "", ""],
+  ["Top Dresser 1", "Turfco WideSpin 1550", "Top Dresser", "", true, "", "", ""],
+  ["Toro 93-2242 1", "Oil Filter & Head Assy - Hyd Toro 93-2242", "Toro 93-2242", "", false, "", "", ""],
+  ["Toro Greens Mower 1", "Toro Greensmaster eTriFlex 3370", "Toro Greens Mower", "SWP-03", true, "", "", ""],
+  ["Toro Greens Mower 2", "Toro Greensmaster eTriFlex 3370", "Toro Greens Mower", "SWP-03", true, "", "", ""],
+  ["Toro Tees Mower 1", "Toro Greensmaster 3150-Q", "Toro Tees Mower", "", true, "", "", ""],
+  ["Toro Workman 1", "Toro Workman", "Workman", "SWP-01", true, "", "", ""],
+  ["Toro Workman 2", "Toro Workman", "Workman", "SWP-01", true, "", "", ""],
+  ["Track Loader 1", "New Holland C227", "Track Loader", "SWP-02", true, "", "", ""],
+  ["Tractor 1", "John Deere 3520", "Tractor", "", true, "", "", ""],
+  ["Tractor 2", "John Deere 3520", "Tractor", "", true, "", "", ""],
+  ["Trailer 1", "Dean / Roshar Trailer", "Trailer", "", true, "", "", ""],
+  ["Trailer 2", "Dean Trailer", "Trailer", "", true, "", "", ""],
+  ["Trailer 3", "Dean Trailer", "Trailer", "", true, "", "", ""],
+  ["Trenching Machine 1", "TrenchMaster 150", "Trenching Machine", "", true, "", "", ""],
+  ["Turf Pro Auto Mower 500 1", "Toro Turf Pro 500", "Turf Pro Auto Mower 500", "", true, "", "", ""],
+  ["turfRad sensor 1", "Toro TurfRad", "turfRad sensor", "", false, "", "", ""],
+  ["UMX Heavy Duty 1", "Yamaha UMX Heavy Duty", "UMX Heavy Duty", "SWP-01", true, "", "", ""],
+  ["Ute 1", "Mitsubishi Triton GLX", "Ute", "", true, "", "", ""],
+  ["Verti Drain 1", "Redexim Verti-Drain 7215", "Verti Drain", "", true, "", "", ""],
+  ["Verti Drain 2", "Redexim Verti-Drain 7215", "Verti Drain", "", true, "", "", ""],
+  ["Water Pump 1", "Honda Water Pump", "Water Pump", "", true, "", "", ""],
+  ["Welder 1", "Cigweld Welder", "Welder", "", true, "", "", ""],
+  ["Wet/Dry Vacuum 1", "Milwaukee Wet/Dry Vacuum", "Wet/Dry Vacuum", "", true, "", "", ""],
+  ["Whipper Snipper 1", "Kress / Stihl Whipper Snipper", "Whipper Snipper", "", true, "", "", ""],
+  ["Whipper Snipper 2", "Stihl Whipper Snipper", "Whipper Snipper", "", true, "", "", ""],
+  ["Whipper Snipper 3", "Stihl Whipper Snipper", "Whipper Snipper", "", true, "", "", ""],
+  ["Whipper Snipper 4", "Stihl Whipper Snipper", "Whipper Snipper", "", true, "", "", ""],
+  ["Whipper Snipper 5", "Stihl Whipper Snipper", "Whipper Snipper", "", true, "", "", ""],
+  ["Whipper Snipper 6", "Stihl Whipper Snipper", "Whipper Snipper", "", true, "", "", ""],
+  ["Workman GTX 1", "Toro Workman GTX Electric 07043", "Workman", "SWP-01", true, "", "", ""],
+  ["Workman GTX 2", "Toro Workman GTX Electric 07043", "Workman", "SWP-01", true, "", "", ""],
+  ["Workman GTX 3", "Toro Workman GTX Lithium 07433TC", "Workman", "SWP-01", true, "", "", ""],
+  ["Workman GTX 4", "Toro Workman GTX Lithium 07433TC", "Workman", "SWP-01", true, "", "", ""],
+  ["Workman MDX 1", "Toro Workman MDX", "Workman", "SWP-01", true, "", "", ""],
+  ["Workman MDX 2", "Toro Workman MDX", "Workman", "SWP-01", true, "", "", ""],
+  ["Workman MDX 3", "Toro Workman MDX", "Workman", "SWP-01", true, "", "", ""],
+  ["Workman MDX 4", "Toro Workman MDX", "Workman", "SWP-01", true, "", "", ""],
+  ["Workman MDX 5", "Toro Workman MDX", "Workman", "SWP-01", true, "", "", ""],
+  ["Z-trac 1", "John Deere Z997R", "Z-trac", "", true, "", "", ""]
 ];
 
 const SEED_KEYS = [
@@ -278,7 +439,16 @@ const README_LINES = [
   "Defects: one row each on Inspection Defects with a priority. If the same line is still open from an earlier inspection, that row is updated instead (Times seen, Last seen, Latest note). Ones fixed on the spot are closed straight away. Everything else stays Open until someone closes it out on the dashboard with their name, what was done and a signature.",
   'Dashboard: INSP_DASH_URL. Score trend, pass rate by section, repeat failures, expiries and service dates, the defect register (close-out), inspection history (full record, Superintendent review and sign) and the N/A register. CSV export.',
   'Slack: a summary posts when an inspection is submitted (High defects tag INSP_ALERT_CC). At 7am on weekdays an area that is due gets a reminder, then weekly until it is done (INSP_EVERY_DAYS, INSP_REMIND).',
-  'Changing the checklist: edit docs/inspect-checklists.js on GitHub and bump its version. Manual runs: setupInspections, previewInspectionReminder.'
+  'Changing the checklist: edit docs/inspect-checklists.js on GitHub and bump its version. Manual runs: setupInspections, previewInspectionReminder.',
+  '',
+  'TURFDOG PRE-STARTS AND MACHINE SWPs',
+  "Every hour from 6am a scheduled Claude task reads the TurfDog board (who has which machine on each shift) and the TurfDog pre-check log, and sends both here. Pre-starts tab = a copy of every TurfDog pre-start. Machine Bookings tab = every person/machine on the board each day, with Pre-start (Done / Not done / Not due yet / Not needed) and the machine's SWP status for that person.",
+  "Slack (#safe-work-procedures): the first time each day someone is on a machine with no pre-start, they are tagged in one post. Each hour after that, anyone still outstanding is tagged again in that post's thread; from reminder 2 (PRESTART_ESCALATE_AFTER) Neil and Ben are tagged too (PRESTART_CC). When everyone is done the thread gets an 'All pre-starts done'. Shift 2 and 3 machines are chased from the times in PRESTART_SHIFT_FROM.",
+  "Machine SWPs: the Machines tab links each TurfDog machine to its SWP code. Anyone booked on a machine whose SWP they haven't signed (or is overdue) is tagged once a day in the same post with the SWP to sign. How often an SWP is re-signed still comes from its Risk on the Documents tab.",
+  "Machines tab: Machine = the name exactly as TurfDog shows it. Type = machines that share a pre-start rule (a pre-start on Workman MDX 4 counts for someone booked on Workman MDX 2 - set PRESTART_MATCH to exact to stop that). Pre-start unticked = never chased (probes, sand, paperwork). New machines from TurfDog are added automatically - fill in their SWP.",
+  "Names: TurfDog names are matched to the Staff tab (Josh = Joshua, Nick = Nicholas, Michael Kruse = Michael K). If someone isn't matched, put their TurfDog name in the Staff tab's 'TurfDog name' column.",
+  'Andrew gets a DM straight away when a pre-start reports a fault, and a summary of the day after 1:30pm (PRESTART_SUMMARY_AFTER): who never did one, pre-starts on a different machine to the board, checklists that don\'t match the machine, and booked machines with no SWP linked.',
+  'Tasks where a booked machine needs no pre-start (e.g. Workshop, where the machine is being serviced): PRESTART_SKIP_TASKS. Manual runs: setupPrestart, previewPrestart.'
 ];
 
 /* ------------------------------------------------------- manual runs */
@@ -324,10 +494,16 @@ function setup() {
 
 function ensureSheets_() {
   const ss = book_();
-  const order = [TAB.MATRIX, TAB.REGISTER, TAB.KEYS, TAB.KEYLOG, TAB.STAFF, TAB.DOCS, TAB.QUIZ, TAB.REMINDERS, TAB.SETTINGS, TAB.README];
+  const order = [TAB.MATRIX, TAB.REGISTER, TAB.PRESTARTS, TAB.BOOKINGS, TAB.KEYS, TAB.KEYLOG, TAB.STAFF, TAB.DOCS, TAB.MACHINES,
+    TAB.QUIZ, TAB.REMINDERS, TAB.SETTINGS, TAB.README];
   order.forEach((name, i) => {
     let sh = ss.getSheetByName(name);
-    if (!sh) sh = ss.insertSheet(name, i);
+    if (!sh) {
+      // new tab goes straight after the nearest earlier tab in the order (other tabs, e.g. Inspections, stay put)
+      let at = 0;
+      for (let j = i - 1; j >= 0; j--) { const prev = ss.getSheetByName(order[j]); if (prev) { at = prev.getIndex(); break; } }
+      sh = ss.insertSheet(name, at);
+    }
     const empty = sh.getLastRow() === 0;
     if (name === TAB.README && !empty) {
       sh.clear();
@@ -385,6 +561,25 @@ function ensureSheets_() {
       [1, 5, 10, 14].forEach(c => sh.getRange(2, c, 5000, 1).setNumberFormat('ddd d mmm yy h:mm am/pm'));
       [150, 150, 80, 150, 150, 120, 320, 80, 200, 150, 170, 110, 75, 150, 300, 240].forEach((w, j) => sh.setColumnWidth(j + 1, w));
     }
+    if (name === TAB.MACHINES) {
+      sh.getRange(2, 1, SEED_MACHINES.length, SEED_MACHINES[0].length).setValues(SEED_MACHINES);
+      sh.getRange(2, 5, 400, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
+      sh.getRange(2, 5, SEED_MACHINES.length, 1).setValues(SEED_MACHINES.map(r => [r[4]]));
+      sh.getRange(2, 6, 400, 1).setNumberFormat('yyyy-mm-dd');
+      sh.getRange(2, 7, 400, 1).setNumberFormat('@');
+      [230, 230, 190, 80, 75, 100, 130, 300].forEach((w, j) => sh.setColumnWidth(j + 1, w));
+    }
+    if (name === TAB.BOOKINGS) {
+      sh.getRange(2, 1, 5000, 1).setNumberFormat('yyyy-mm-dd');
+      sh.getRange(2, 7, 5000, 1).setNumberFormat('@');
+      sh.getRange(2, 11, 5000, 1).setNumberFormat('h:mm am/pm');
+      [95, 50, 190, 150, 230, 95, 85, 90, 180, 85, 100, 260].forEach((w, j) => sh.setColumnWidth(j + 1, w));
+    }
+    if (name === TAB.PRESTARTS) {
+      sh.getRange(2, 1, 5000, 1).setNumberFormat('@');
+      sh.getRange(2, 8, 5000, 1).setNumberFormat('yyyy-mm-dd hh:mm');
+      [130, 150, 230, 300, 55, 60, 260, 130].forEach((w, j) => sh.setColumnWidth(j + 1, w));
+    }
     if (name === TAB.REMINDERS) {
       sh.getRange(2, 1, 5000, 1).setNumberFormat('yyyy-mm-dd hh:mm');
       [130, 160, 110, 70, 70, 500].forEach((w, j) => sh.setColumnWidth(j + 1, w));
@@ -429,6 +624,9 @@ function doGet(e) {
     if (p.action === 'inspStatus') return json_(inspStatus_());
     if (p.action === 'inspData') return json_(inspData_(p));
     if (p.action === 'inspRecord') return json_(inspRecord_(p));
+    if (p.action === 'prestartPlan') return json_(prestartPlan_(p));
+    if (p.action === 'prestartPosted') return json_(prestartPosted_(p));
+    if (p.action === 'prestartFlag') return json_(prestartFlag_(p));
     return json_({ ok: false, error: 'Unknown action' });
   } catch (err) {
     return json_({ ok: false, error: msg_(err) });
@@ -448,6 +646,7 @@ function doPost(e) {
     if (b.action === 'inspSubmit') return json_(inspSubmit_(b));
     if (b.action === 'inspClose') return json_(inspClose_(b));
     if (b.action === 'inspReview') return json_(inspReview_(b));
+    if (b.action === 'prestart') return json_(prestart_(b));
     return json_({ ok: false, error: 'Unknown action' });
   } catch (err) {
     return json_({ ok: false, error: msg_(err) });
@@ -1488,6 +1687,528 @@ function refreshKeysTab_(kc) {
     const bg = { 'In': '#D9F2E3', 'Out': '#FFF1C2', 'OVERDUE': '#F8D0CC', 'MISSING': '#F8D0CC', 'Not in use': '#EEEEEE' }[status];
     t.sh.getRange(r._row, cols[0]).setBackground(bg).setFontWeight(status === 'In' || status === 'Not in use' ? 'normal' : 'bold');
   });
+}
+
+/* ------------------------------------------------ TurfDog pre-starts */
+// The hourly pre-start task reads today's TurfDog board (who has which machine on each shift) and the TurfDog
+// pre-check log (Staff > Safety > Safety Checklists > Pre-Check) in Chrome, and posts both here
+// (POST action 'prestart' with PRESTART_KEY). This:
+//   - copies every pre-start into the Pre-starts tab and every machine booking into Machine Bookings,
+//   - adds any machine it hasn't seen to the Machines tab (Type, SWP, whether it needs a pre-start),
+//   - works out who is on a machine with no pre-start yet, and who hasn't signed that machine's SWP,
+//   - writes the Slack text. The task fetches it (GET prestartPlan), posts it in #safe-work-procedures
+//     (one post a day, then a reply in its thread each hour until everyone is done) and reports back
+//     (GET prestartPosted) so reminder counts and the day's thread are kept.
+// Manual runs: setupPrestart (tabs, settings, key), previewPrestart (the last plan).
+
+const PRESTART_NOT_MACHINE = /invoice|spray sheet|^spraying\b|^sand\b|drainage sand|repair works|mechanic works|^misc\b|moisture probe|sensor|gps|locator|rms kit|flowsmart|per 4 max|gs3 ball|93-2242|charging station/i;
+
+function setupPrestart() {
+  ensureSheets_();
+  ensureSettings_();
+  if (!String(settings_().PRESTART_KEY || '').trim()) setSetting_('PRESTART_KEY', Utilities.getUuid().replace(/-/g, ''));
+  console.log('Pre-start tabs ready: ' + [TAB.PRESTARTS, TAB.BOOKINGS, TAB.MACHINES].join(', ') + '. Key is in Settings > PRESTART_KEY.');
+}
+
+function previewPrestart() {
+  const plan = JSON.parse(PropertiesService.getScriptProperties().getProperty('ps:plan') || '{}');
+  console.log(plan.date ? JSON.stringify({ date: plan.date, time: plan.time, summary: plan.summaryLine, post: plan.post, dm: plan.dm }, null, 2) : 'No pre-start data yet today.');
+}
+
+function prestartAuth_(s, key) {
+  const want = String(s.PRESTART_KEY || '').trim();
+  if (!want || String(key || '').trim() !== want) throw new Error('Not allowed');
+}
+
+// POST from the TurfDog reader: { key, today, board: [{ shift, task, staff, machines: [] }], shiftsRead, checks, issues }
+// checks / issues: [{ at: 'yyyy-mm-dd HH:mm', staff, machine, checklist, items }]
+function prestart_(b) {
+  const s0 = settings_();
+  prestartAuth_(s0, b.key);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    const ss = book_();
+    if (![TAB.PRESTARTS, TAB.BOOKINGS, TAB.MACHINES].every(n => ss.getSheetByName(n))) { ensureSheets_(); ensureSettings_(); }
+    const s = settings_();
+    const now = new Date();
+    const today = dayKey_(now);
+    const hhmm = Utilities.formatDate(now, TZ, 'HH:mm');
+    if (b.today && String(b.today) !== today) throw new Error('TurfDog is showing ' + b.today + ', not today (' + today + ')');
+    const ctx = context_();
+    const who = memoStaff_(ctx.staff);
+    const mc = machines_();
+    const skip = groups_(s.PRESTART_SKIP_TASKS);
+    const shiftsRead = (Array.isArray(b.shiftsRead) && b.shiftsRead.length ? b.shiftsRead : [1, 2, 3]).map(Number);
+
+    const issueKeys = {};
+    (Array.isArray(b.issues) ? b.issues : []).map(cleanCheck_).filter(Boolean).forEach(c => { issueKeys[c.key] = true; });
+    const checks = (Array.isArray(b.checks) ? b.checks : []).map(cleanCheck_).filter(c => c && c.day === today);
+    checks.forEach(c => { c.issues = !!issueKeys[c.key]; });
+
+    const board = [];
+    (Array.isArray(b.board) ? b.board : []).forEach(x => {
+      const staff = String((x && x.staff) || '').trim();
+      if (!staff || /^testing account/i.test(staff)) return;
+      (Array.isArray(x.machines) ? x.machines : []).map(m => String(m || '').trim()).filter(m => m && !/^assign equipment$/i.test(m))
+        .forEach(m => board.push({ shift: Math.max(1, Math.round(num_(x.shift, 1))), task: String(x.task || '').trim(), staff, machine: m }));
+    });
+
+    addMachines_(mc, board.map(x => x.machine).concat(checks.map(c => c.machine)), today);
+
+    const live = {};
+    ctx.docs.filter(isLive_).forEach(d => { live[String(d.Code).trim().toUpperCase()] = d; });
+    const exact = norm_(s.PRESTART_MATCH) === 'exact';
+    const byTime = (x, y) => (x.at < y.at ? -1 : x.at > y.at ? 1 : 0);
+    const evals = board.map(x => {
+      const st = who(x.staff);
+      const mine = checks.filter(c => samePerson_(who, c.staff, x.staff));
+      const onIt = mine.filter(c => norm_(c.machine) === norm_(x.machine)).sort(byTime)[0];
+      const type = machineType_(mc, x.machine);
+      const sameType = !onIt && !exact ? mine.filter(c => machineType_(mc, c.machine) === type).sort(byTime)[0] : null;
+      const skipped = skip.indexOf(norm_(x.task)) >= 0;
+      const needs = machineNeedsPrestart_(mc, x.machine);
+      let pre, at = '', note = '';
+      if (!needs) pre = 'Not needed';
+      else if (skipped) pre = 'Not needed (' + x.task + ')';
+      else if (onIt) { pre = 'Done'; at = onIt.time; }
+      else if (sameType) { pre = 'Done'; at = sameType.time; note = 'Pre-start done on ' + sameType.machine; }
+      else if (hhmm < shiftFrom_(s, x.shift)) pre = 'Not due yet';
+      else pre = 'Not done';
+      const swps = machineSwps_(mc, x.machine);
+      const swpOut = [];
+      if (st && !skipped) swps.filter(c => live[c]).forEach(c => {
+        const i = itemStatus_(ctx, st, live[c]);
+        if (i.status === 'To sign' || i.status === 'Overdue') swpOut.push({ code: c, title: String(live[c].Title).trim(), status: i.status, due: i.due, outdated: !!i.outdated });
+      });
+      if (!st) note = (note ? note + '. ' : '') + 'Not on the Staff tab';
+      return Object.assign({}, x, { st, pre, at, note, swps, swpOut, skipped, type });
+    });
+
+    writeBookings_(today, evals, shiftsRead);
+    logPrestarts_(checks, evals, mc, who);
+    touchMachines_(mc, evals, checks, today);
+
+    const plan = prestartPlanBuild_(s, today, hhmm, evals, checks, mc, who);
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty('ps:plan', JSON.stringify(plan));
+    prunePrestartState_(props, today);
+    return { ok: true, summary: plan.summaryLine, post: plan.post ? plan.post.kind : '', dm: plan.dm ? 'yes' : '' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// TurfDog pre-check row -> { day, time, at, staff, machine, checklist, items, key }
+function cleanCheck_(c) {
+  if (!c) return null;
+  const m = String(c.at || '').trim().match(/^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})/);
+  const staff = String(c.staff || '').trim(), machine = String(c.machine || '').trim();
+  if (!m || !staff || !machine) return null;
+  const time = ('0' + m[2]).slice(-2) + ':' + m[3];
+  const at = m[1] + ' ' + time;
+  return { day: m[1], time, at, staff, machine, checklist: String(c.checklist || '').trim(), items: String(c.items || '').trim(), key: at + '|' + tdClean_(staff) + '|' + norm_(machine) };
+}
+
+// TurfDog names: drop "nicknames", emojis and punctuation.
+function tdClean_(v) {
+  return String(v || '').replace(/["“”][^"“”]*["“”]/g, ' ').replace(/[‘’']/g, '')
+    .replace(/[^A-Za-z0-9À-ÿ -]/g, ' ').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+// TurfDog name -> Staff row. 'TurfDog name' column first, then the name, then first-name stem + surname
+// (Josh = Joshua, Nick = Nicholas, Michael Kruse = Michael K).
+function staffFor_(staff, name) {
+  const n = tdClean_(name);
+  if (!n) return null;
+  let hit = staff.filter(r => tdClean_(r['TurfDog name']) === n);
+  if (hit.length) return hit[0];
+  hit = staff.filter(r => tdClean_(r.Name) === n);
+  if (hit.length) return hit.filter(isActive_)[0] || hit[0];
+  const p = n.split(' '), f = p[0], l = p.slice(1).join(' ');
+  if (!l) return null;
+  const stem = (a, b) => a === b || (a.length >= 3 && b.length >= 3 && a.slice(0, 3) === b.slice(0, 3));
+  hit = staff.filter(r => {
+    const q = tdClean_(r.Name).split(' '), rf = q[0], rl = q.slice(1).join(' ');
+    if (!rl || !stem(f, rf)) return false;
+    return rl === l || (rl.length === 1 && l.charAt(0) === rl) || (l.length === 1 && rl.charAt(0) === l);
+  });
+  if (hit.length > 1) hit = hit.filter(isActive_);
+  return hit.length === 1 ? hit[0] : null;
+}
+
+function memoStaff_(staff) {
+  const memo = {};
+  return name => {
+    const k = tdClean_(name);
+    if (!(k in memo)) memo[k] = staffFor_(staff, name);
+    return memo[k];
+  };
+}
+
+function samePerson_(who, a, b) {
+  if (tdClean_(a) === tdClean_(b)) return true;
+  const x = who(a);
+  return !!x && x === who(b);
+}
+
+function machines_() {
+  const t = read_(TAB.MACHINES);
+  const by = {};
+  t.rows.forEach(r => { const k = norm_(r.Machine); if (k && !by[k]) by[k] = r; });
+  return { t, by };
+}
+
+function machineType_(mc, name) {
+  const r = mc.by[norm_(name)];
+  const t = r ? String(r.Type || '').trim() : '';
+  return norm_(t || String(name).replace(/\s+\d+\s*$/, ''));
+}
+
+function machineNeedsPrestart_(mc, name) {
+  const r = mc.by[norm_(name)];
+  if (r && r['Pre-start'] !== '' && r['Pre-start'] !== null && r['Pre-start'] !== undefined) return bool_(r['Pre-start']);
+  return !PRESTART_NOT_MACHINE.test(String(name));
+}
+
+function machineSwps_(mc, name) {
+  const r = mc.by[norm_(name)];
+  return r ? String(r.SWP || '').toUpperCase().split(/[\s,;]+/).filter(c => /^[A-Z]{3}-\d+$/.test(c)) : [];
+}
+
+function addMachines_(mc, names, today) {
+  const add = [];
+  names.forEach(n => {
+    const k = norm_(n);
+    if (!k || mc.by[k]) return;
+    const row = { Machine: n, Model: '', Type: String(n).replace(/\s+\d+\s*$/, ''), SWP: '', 'Pre-start': !PRESTART_NOT_MACHINE.test(n), 'Last booked': '', 'Last pre-start': '', Notes: 'New in TurfDog ' + today + ' - add its SWP' };
+    mc.by[k] = row;
+    add.push(row);
+  });
+  if (!add.length) return;
+  const at = mc.t.sh.getLastRow() + 1;
+  mc.t.sh.getRange(at, 1, add.length, mc.t.head.length).setValues(add.map(r => mc.t.head.map(h => (h in r ? r[h] : ''))));
+  add.forEach((r, i) => { r._row = at + i; });
+}
+
+function touchMachines_(mc, evals, checks, today) {
+  const last = {};
+  evals.forEach(e => { const k = norm_(e.machine); (last[k] = last[k] || {}).booked = today; });
+  checks.forEach(c => { const k = norm_(c.machine); const o = last[k] = last[k] || {}; if (!o.pre || c.at > o.pre) o.pre = c.at; });
+  const cB = mc.t.col('Last booked'), cP = mc.t.col('Last pre-start');
+  Object.keys(last).forEach(k => {
+    const r = mc.by[k];
+    if (!r || !r._row) return;
+    if (last[k].booked && cB > 0 && toKey_(r['Last booked']) !== today) mc.t.sh.getRange(r._row, cB).setValue(today);
+    const lp = r['Last pre-start'] instanceof Date ? Utilities.formatDate(r['Last pre-start'], TZ, 'yyyy-MM-dd HH:mm') : String(r['Last pre-start'] || '');
+    if (last[k].pre && cP > 0 && lp < last[k].pre) mc.t.sh.getRange(r._row, cP).setValue(last[k].pre);
+  });
+}
+
+function shiftFrom_(s, n) {
+  const m = String(s.PRESTART_SHIFT_FROM || '').match(new RegExp('(?:^|[,;\\s])' + n + '\\s*=\\s*(\\d{1,2})[:.](\\d{2})'));
+  return m ? ('0' + m[1]).slice(-2) + ':' + m[2] : (n === 1 ? '06:00' : '23:59');
+}
+
+// Machine Bookings: one row per shift / person / machine per day, updated on every run.
+function writeBookings_(today, evals, shiftsRead) {
+  const t = read_(TAB.BOOKINGS);
+  const keyOf = (shift, staff, machine) => [num_(shift, 1), tdClean_(staff), norm_(machine)].join('|');
+  const have = {};
+  t.rows.filter(r => toKey_(r.Date) === today).forEach(r => { have[keyOf(r.Shift, r.Staff, r.Machine)] = r; });
+  const seen = {}, add = [];
+  evals.forEach(e => {
+    const k = keyOf(e.shift, e.staff, e.machine);
+    if (seen[k]) { e.dup = seen[k]; return; }
+    seen[k] = e;
+    const swpStatus = !e.st ? '' : !e.swps.length ? 'No SWP linked' :
+      e.swpOut.length ? e.swpOut.map(x => x.code + (x.status === 'Overdue' ? ' overdue' : ' to sign')).join(', ') : 'Signed';
+    const vals = { 'Task': e.task, 'Pre-start': e.pre, 'Pre-start at': e.at, 'SWP': e.swps.join(', '), 'SWP status': swpStatus, 'Notes': e.note };
+    const r = have[k];
+    if (r) {
+      Object.keys(vals).forEach(h => { const c = t.col(h); if (c > 0 && String(r[h]) !== String(vals[h])) t.sh.getRange(r._row, c).setValue(vals[h]); });
+      e.row = r._row;
+      e.reminders = num_(r.Reminders, 0);
+    } else {
+      e.reminders = 0;
+      add.push([e, Object.assign({ 'Date': today, 'Shift': e.shift, 'Staff': e.staff, 'Machine': e.machine, 'Reminders': 0, 'Last reminder': '' }, vals)]);
+    }
+  });
+  // Bookings taken off a shift we just read: keep the row (history) but stop chasing it.
+  Object.keys(have).forEach(k => {
+    const r = have[k];
+    if (seen[k] || shiftsRead.indexOf(num_(r.Shift, 1)) < 0) return;
+    if (/^(Done|Off the board|Not needed)/.test(String(r['Pre-start']))) return;
+    const c = t.col('Pre-start');
+    if (c > 0) t.sh.getRange(r._row, c).setValue('Off the board');
+  });
+  if (add.length) {
+    const at = t.sh.getLastRow() + 1;
+    t.sh.getRange(at, 1, add.length, t.head.length).setValues(add.map(a => t.head.map(h => (h in a[1] ? a[1][h] : ''))));
+    add.forEach((a, i) => { a[0].row = at + i; });
+  }
+  evals.forEach(e => { if (e.dup) { e.row = e.dup.row; e.reminders = e.dup.reminders; } });
+}
+
+// Pre-starts tab: a copy of the TurfDog pre-check log, with whether it matches the board.
+function logPrestarts_(checks, evals, mc, who) {
+  if (!checks.length) return;
+  const t = read_(TAB.PRESTARTS);
+  const have = {};
+  t.rows.forEach(r => {
+    const v = r['Done at'];
+    const at = v instanceof Date ? Utilities.formatDate(v, TZ, 'yyyy-MM-dd HH:mm') : String(v).trim().slice(0, 16);
+    have[at + '|' + tdClean_(r.Staff) + '|' + norm_(r.Machine)] = r;
+  });
+  const add = [];
+  checks.forEach(c => {
+    const mine = evals.filter(e => samePerson_(who, e.staff, c.staff));
+    const same = mine.find(e => norm_(e.machine) === norm_(c.machine));
+    const typ = !same && mine.find(e => e.type === machineType_(mc, c.machine));
+    const onBoard = same ? 'Yes' : typ ? 'Same type - board says ' + typ.machine : mine.length ? 'No - board says ' + mine.map(e => e.machine).join(', ') : 'Not booked on the board';
+    const fits = checklistFits_(mc, c);
+    const r = have[c.key];
+    if (r) {
+      if (c.issues && String(r.Issues) !== 'Yes') t.sh.getRange(r._row, t.col('Issues')).setValue('Yes');
+      if (String(r['On the board']).split('.')[0] !== onBoard) t.sh.getRange(r._row, t.col('On the board')).setValue(onBoard + (fits ? '' : '. Checklist does not match the machine'));
+      return;
+    }
+    have[c.key] = true;
+    add.push({ 'Done at': c.at, 'Staff': c.staff, 'Machine': c.machine, 'Checklist': c.checklist, 'Items': c.items, 'Issues': c.issues ? 'Yes' : '',
+      'On the board': onBoard + (fits ? '' : '. Checklist does not match the machine'), 'Logged at': new Date() });
+  });
+  if (!add.length) return;
+  add.sort((x, y) => (x['Done at'] < y['Done at'] ? -1 : 1));
+  const at = t.sh.getLastRow() + 1;
+  t.sh.getRange(at, 1, add.length, t.head.length).setValues(add.map(r => t.head.map(h => (h in r ? r[h] : ''))));
+}
+
+// Does the checklist name share a word with the machine (or its Type)? "Gamberini Fertiliser Spreader" on a Workman doesn't.
+function checklistFits_(mc, c) {
+  const stop = { pre: 1, start: 1, use: 1, check: 1, checks: 1, checklist: 1, safety: 1, toro: 1, john: 1, deere: 1, the: 1, and: 1, daily: 1, operator: 1 };
+  const words = v => tdClean_(v).split(/[\s-]+/).filter(w => w.length >= 3 && !stop[w]);
+  const cl = words(c.checklist);
+  if (!cl.length) return true;
+  const r = mc.by[norm_(c.machine)];
+  const mw = words(c.machine + ' ' + machineType_(mc, c.machine) + ' ' + (r ? String(r.Model || '') : ''));
+  return cl.some(w => mw.indexOf(w) >= 0);
+}
+
+function prestartState_(props, today) {
+  let st = {};
+  try { st = JSON.parse(props.getProperty('ps:' + today) || '{}'); } catch (e) { st = {}; }
+  return Object.assign({ header: '', thread: '', open: false, summary: false, issues: [], flags: [] }, st);
+}
+
+function prunePrestartState_(props, today) {
+  if (typeof props.getKeys !== 'function') return;
+  const cut = addDays_(today, -14);
+  props.getKeys().filter(k => /^ps:\d{4}-\d{2}-\d{2}$/.test(k) && k.slice(3) < cut).forEach(k => props.deleteProperty(k));
+}
+
+// What to post. One post a day in the channel, then replies in its thread.
+function prestartPlanBuild_(s, today, hhmm, evals, checks, mc, who) {
+  const props = PropertiesService.getScriptProperties();
+  const state = prestartState_(props, today);
+  const site = String(s.SITE_URL || '').trim();
+  const tag = e => {
+    const id = e.st ? String(e.st['Slack ID'] || '').trim() : '';
+    return /^[UW][A-Z0-9]{6,}$/.test(id) ? '<@' + id + '>' : '**' + e.staff + '**';
+  };
+  const personKey = e => (e.st ? 'S:' + norm_(e.st.Name) : 'T:' + tdClean_(e.staff));
+
+  // Pre-starts not done, one line per person
+  const out = {};
+  evals.filter(e => e.pre === 'Not done').forEach(e => {
+    const o = out[personKey(e)] = out[personKey(e)] || { who: tag(e), name: e.staff, machines: [], rows: [], reminders: 0 };
+    if (o.machines.indexOf(e.machine) < 0) o.machines.push(e.machine);
+    if (e.row && o.rows.indexOf(e.row) < 0) o.rows.push(e.row);
+    o.reminders = Math.max(o.reminders, e.reminders || 0);
+  });
+  const people = Object.keys(out).map(k => out[k]).sort((a, b) => a.name.localeCompare(b.name));
+  const rows = [].concat.apply([], people.map(o => o.rows));
+
+  // SWPs not signed for machines booked today
+  const swp = {};
+  if (bool_(s.PRESTART_SWP)) evals.filter(e => e.swpOut.length).forEach(e => {
+    const o = swp[personKey(e)] = swp[personKey(e)] || { who: tag(e), name: e.staff, docs: {} };
+    e.swpOut.forEach(x => { o.docs[x.code] = x; });
+  });
+  const swpPeople = Object.keys(swp).map(k => swp[k]).sort((a, b) => a.name.localeCompare(b.name));
+  const swpText = x => x.code + ' ' + x.title + (x.status === 'Overdue' ? ' (overdue)' : x.outdated ? ' (updated, sign by ' + nice_(x.due) + ')' : ' (sign by ' + nice_(x.due) + ')');
+  const line = o => '• ' + o.who + ' ' + o.machines.join(' and ');
+  const escAt = Math.max(1, num_(s.PRESTART_ESCALATE_AFTER, 2));
+  const cc = String(s.PRESTART_CC || '').split(/[\s,;]+/).filter(x => /^[UW][A-Z0-9]{6,}$/.test(x));
+
+  let post = null;
+  if (!state.header) {
+    if (people.length || (swpPeople.length && hhmm >= shiftFrom_(s, 1))) {
+      const t = [];
+      if (people.length) {
+        t.push(':construction_worker: **Pre-starts not done yet** - ' + nice_(today));
+        people.forEach(o => t.push(line(o)));
+        t.push('Do your pre-start in TurfDog before you start the machine.');
+        if (people.some(o => o.reminders + 1 >= escAt) && cc.length) t.push('cc ' + cc.map(x => '<@' + x + '>').join(' '));
+      }
+      if (swpPeople.length) {
+        if (t.length) t.push('');
+        t.push(':clipboard: **SWPs to sign for the machines you\'re on' + (people.length ? '' : ' - ' + nice_(today)) + '**');
+        swpPeople.forEach(o => t.push('• ' + o.who + ' ' + Object.keys(o.docs).sort().map(c => swpText(o.docs[c])).join(' · ')));
+        t.push('Read and sign on the safety page: ' + site);
+      }
+      post = { kind: 'header', text: t.join('\n'), thread: '', rows, open: people.length > 0 };
+    }
+  } else if (people.length) {
+    const t = [':rotating_light: **Pre-start still not done** (' + clock_(new Date()) + ')'];
+    people.forEach(o => t.push(line(o)));
+    t.push('Do it in TurfDog before you use the machine.');
+    if (people.some(o => o.reminders + 1 >= escAt) && cc.length) t.push('cc ' + cc.map(x => '<@' + x + '>').join(' '));
+    post = { kind: 'reminder', text: t.join('\n'), thread: state.thread, rows, open: true };
+  } else if (state.open) {
+    post = { kind: 'allDone', text: ':white_check_mark: All pre-starts done.', thread: state.thread, rows: [], open: false };
+  }
+
+  // DM to Andrew: new faults straight away, the day summary once in the afternoon
+  const dm = [];
+  const newIssues = checks.filter(c => c.issues && state.issues.indexOf(c.key) < 0);
+  if (newIssues.length) {
+    dm.push(':warning: **Pre-start fault reported**');
+    newIssues.forEach(c => dm.push('• ' + c.staff + ', ' + c.machine + ' at ' + clockOf_(c.time)));
+    dm.push('Details in TurfDog: Staff > Safety > Safety Checklists > Pre-Check (Issues only).');
+  }
+  let summary = false;
+  if (!state.summary && hhmm >= String(s.PRESTART_SUMMARY_AFTER || '13:30').trim()) {
+    summary = true;
+    if (dm.length) dm.push('');
+    dm.push.apply(dm, prestartSummary_(today, evals, checks, mc, who));
+  }
+
+  const counted = uniqueBookings_(evals);
+  const n = k => counted.filter(e => (k === 'Done' ? e.pre === 'Done' : k === 'Not needed' ? /^Not needed/.test(e.pre) : e.pre === k)).length;
+  return {
+    date: today, time: hhmm, generated: new Date().toISOString(),
+    summaryLine: counted.length + ' machine bookings: ' + n('Done') + ' done, ' + n('Not done') + ' not done, ' + n('Not due yet') + ' not due yet, ' + n('Not needed') + ' not needed; ' +
+      checks.length + ' pre-starts today; ' + swpPeople.length + ' with SWPs to sign',
+    post, dm: dm.join('\n'), dmSummary: summary, dmIssues: newIssues.map(c => c.key)
+  };
+}
+
+function uniqueBookings_(evals) {
+  const seen = {};
+  return evals.filter(e => {
+    const k = tdClean_(e.staff) + '|' + norm_(e.machine);
+    if (seen[k]) return false;
+    seen[k] = true;
+    return true;
+  });
+}
+
+function clockOf_(hhmm) {
+  const p = String(hhmm).split(':').map(Number);
+  const h = p[0] % 12 || 12;
+  return h + (p[1] ? ':' + ('0' + p[1]).slice(-2) : '') + (p[0] < 12 ? 'am' : 'pm');
+}
+
+function prestartSummary_(today, evals, checks, mc, who) {
+  const u = uniqueBookings_(evals);
+  const done = u.filter(e => e.pre === 'Done'), notDone = u.filter(e => e.pre === 'Not done');
+  const out = ['**Pre-starts, ' + nice_(today) + '**',
+    u.length + ' machines booked on the board: ' + done.length + ' pre-started, ' + notDone.length + ' not done' +
+    (u.length - done.length - notDone.length ? ', ' + (u.length - done.length - notDone.length) + ' not needed or not due' : '') + '.'];
+  if (notDone.length) out.push('Not done: ' + notDone.map(e => e.staff + ' (' + e.machine + ')').join(', '));
+  const moved = u.filter(e => /^Pre-start done on/.test(e.note));
+  if (moved.length) out.push('Pre-start on a different machine to the board: ' + moved.map(e => e.staff + ' (board ' + e.machine + ', ' + e.note.replace(/^Pre-start done on /, 'did ') + ')').join(', '));
+  const misfit = checks.filter(c => !checklistFits_(mc, c));
+  if (misfit.length) out.push('Checklist doesn\'t match the machine: ' + misfit.map(c => c.staff + ', ' + c.machine + ' on "' + c.checklist + '"').join('; '));
+  const offBoard = checks.filter(c => !evals.some(e => samePerson_(who, e.staff, c.staff)));
+  if (offBoard.length) out.push('Pre-starts by people not booked on a machine: ' + offBoard.map(c => c.staff + ' (' + c.machine + ')').join(', '));
+  const noSwp = [];
+  u.forEach(e => { if (!e.skipped && !e.swps.length && /^(Done|Not done)$/.test(e.pre) && noSwp.indexOf(e.machine) < 0) noSwp.push(e.machine); });
+  if (noSwp.length) out.push('Booked machines with no SWP linked on the Machines tab: ' + noSwp.join(', '));
+  const unknown = [];
+  u.forEach(e => {
+    if (!e.st && unknown.indexOf(e.staff) < 0) unknown.push(e.staff);
+    else if (e.st && !isActive_(e.st) && unknown.indexOf(e.staff + ' (matched ' + String(e.st.Name).trim() + ', not Active)') < 0) unknown.push(e.staff + ' (matched ' + String(e.st.Name).trim() + ', not Active)');
+  });
+  if (unknown.length) out.push('Check the Staff tab: ' + unknown.join(', '));
+  return out;
+}
+
+function prestartPlan_(p) {
+  prestartAuth_(settings_(), p.key);
+  const plan = JSON.parse(PropertiesService.getScriptProperties().getProperty('ps:plan') || '{}');
+  const today = dayKey_(new Date());
+  if (plan.date !== today) return { ok: false, error: 'No TurfDog data received today yet' };
+  const age = (Date.now() - new Date(plan.generated).getTime()) / 60000;
+  if (!(age <= 30)) return { ok: false, error: 'TurfDog data is ' + Math.round(age) + ' minutes old - read TurfDog again' };
+  return {
+    ok: true, date: plan.date, time: plan.time, summary: plan.summaryLine,
+    post: plan.post && !plan.postDone ? { kind: plan.post.kind, text: plan.post.text, thread: plan.post.thread } : null,
+    dm: plan.dm && !plan.dmDone ? plan.dm : ''
+  };
+}
+
+// The task reports what it posted: kind = header | reminder | allDone | dm, ts = the Slack message ts.
+function prestartPosted_(p) {
+  const s = settings_();
+  prestartAuth_(s, p.key);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const plan = JSON.parse(props.getProperty('ps:plan') || '{}');
+    const today = dayKey_(new Date());
+    if (plan.date !== today) throw new Error('No TurfDog data received today yet');
+    const st = prestartState_(props, today);
+    const kind = String(p.kind || '').trim();
+    const ts = String(p.ts || '').trim();
+    if (kind === 'dm') {
+      if (plan.dmDone) return { ok: true, already: true };
+      if (plan.dmSummary) st.summary = true;
+      st.issues = st.issues.concat(plan.dmIssues || []);
+      plan.dmDone = true;
+    } else if (['header', 'reminder', 'allDone'].indexOf(kind) >= 0) {
+      if (!plan.post) throw new Error('Nothing was due to post');
+      if (plan.postDone) return { ok: true, already: true };
+      if (kind === 'header' || !st.thread) { st.header = ts || 'posted'; st.thread = ts; }
+      st.open = !!plan.post.open;
+      const rows = plan.post.rows || [];
+      if (rows.length) {
+        const t = read_(TAB.BOOKINGS);
+        const cR = t.col('Reminders'), cL = t.col('Last reminder');
+        const byRow = {};
+        t.rows.forEach(r => { byRow[r._row] = r; });
+        rows.forEach(n => {
+          const r = byRow[n];
+          if (!r) return;
+          if (cR > 0) t.sh.getRange(n, cR).setValue(num_(r.Reminders, 0) + 1);
+          if (cL > 0) t.sh.getRange(n, cL).setValue(new Date());
+        });
+      }
+      plan.postDone = true;
+    } else {
+      throw new Error('Unknown kind');
+    }
+    props.setProperty('ps:' + today, JSON.stringify(st));
+    props.setProperty('ps:plan', JSON.stringify(plan));
+    return { ok: true, thread: st.thread };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Once-a-day flags for the task's own problem DMs (e.g. TurfDog logged out): first=true only the first time today.
+function prestartFlag_(p) {
+  prestartAuth_(settings_(), p.key);
+  const props = PropertiesService.getScriptProperties();
+  const today = dayKey_(new Date());
+  const st = prestartState_(props, today);
+  const name = String(p.name || '').trim().slice(0, 60);
+  if (!name) throw new Error('Missing name');
+  if (st.flags.indexOf(name) >= 0) return { ok: true, first: false };
+  st.flags.push(name);
+  props.setProperty('ps:' + today, JSON.stringify(st));
+  return { ok: true, first: true };
 }
 
 /* ------------------------------------------------------------- helpers */
