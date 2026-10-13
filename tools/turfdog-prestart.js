@@ -1,4 +1,4 @@
-// Ranfurlie Safety - TurfDog pre-start reader (v1.1, 13 Oct 2026).
+// Ranfurlie Safety - TurfDog pre-start reader (v1.2, 13 Oct 2026).
 //
 // The hourly pre-start task loads this into a logged-in TurfDog tab (turfdog.net/dashboard):
 //   const src = await (await fetch('https://raw.githubusercontent.com/andranf/ranfurlie-safety/main/tools/turfdog-prestart.js', { cache: 'no-store' })).text();
@@ -12,7 +12,7 @@
 // pre-starts, then the "Issues only" filter) -> POST to the Ranfurlie Safety web app (action 'prestart').
 // Read only: it never changes anything in TurfDog (the Issues only filter is switched back off).
 
-const TD_VERSION = 'reader 1.1';
+const TD_VERSION = 'reader 1.2';
 const TD_KEY = KEY;
 const TD_API = API;
 
@@ -65,7 +65,8 @@ function chips() {
   }).filter(r => r.staff && !/^available staff/i.test(r.task));
 }
 
-const peopleOf = rows => JSON.stringify(rows.map(r => [r.task, r.staff]));
+// who is on which task, order ignored (TurfDog can redraw the same board in a different order)
+const peopleOf = rows => JSON.stringify(rows.map(r => r.task + '|' + r.staff).sort());
 
 // Reads whichever shift is showing once it has settled, then switches to the next unread one.
 // TurfDog keeps showing the old shift for a few seconds after a switch (first as it was, then without machines),
@@ -94,10 +95,15 @@ function boardStep() {
   if (active && !S.board[active] && want !== null && cardCount() !== want && Date.now() - S.since < 90000) return 'reading shift ' + active;
   let msg = '';
   if (active && !S.board[active]) {
-    // after a switch the people must change; if they don't (two shifts the same, or both empty) wait 45 s before trusting it
-    const fresh = S.from === null || S.from === undefined || peopleOf(rows) !== S.from || Date.now() - S.clickAt > 45000;
+    // After a switch TurfDog keeps drawing the old shift (first as it was, then without machines) for up to a minute.
+    // So the board must differ from the one before the switch and from every shift already read, and hold steady for
+    // three reads. If it doesn't differ (two shifts really the same, or both empty) trust it after 60 s.
+    const ppl = peopleOf(rows);
+    const seen = rows.length && (ppl === S.from || Object.keys(S.board).some(k => peopleOf(S.board[k]) === ppl));
+    const sinceClick = S.clickAt ? Date.now() - S.clickAt : Infinity;
+    if (seen && sinceClick < 60000) return 'reading shift ' + active;
     const noMachines = !rows.some(r => r.machines.length);
-    if (!fresh || (noMachines && S.same < 3)) return 'reading shift ' + active;
+    if (S.same < (S.clickAt || noMachines ? 3 : 1)) return 'reading shift ' + active;
     S.board[active] = rows;
     S.from = null;
     S.since = 0;
