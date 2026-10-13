@@ -20,6 +20,11 @@
  *     drawn signature) and scan it back in. Keys and Key Log tabs. From 10am Tuesday any key still
  *     out is called out in Slack, then again each weekday until it is back. Lost keys alert at once.
  * Manual runs for keys: setupKeys, previewKeyCallout.
+ *   - Monthly H&S inspections (docs/inspection.html, dashboard docs/inspection-dashboard.html): staff answer
+ *     every line Yes / No / N/A on their phone (No = description + photos, N/A = reason), sign and submit.
+ *     Inspections, Inspection Defects and Inspection Answers tabs are the register. Defects are closed out and
+ *     inspections reviewed from the dashboard (name, note, signature). Slack summary on submit; reminder when due.
+ * Manual runs for inspections: setupInspections, previewInspectionReminder.
  */
 
 const TZ = 'Australia/Melbourne';
@@ -80,7 +85,15 @@ const SEED_SETTINGS = [
   ['KEY_DUE_TIME', '10:00', 'Due back time (24 h). Keys still out are called out in Slack from this time'],
   ['KEY_REPEAT_DAILY', 'TRUE', 'Call out an unreturned key again at the due time each weekday until it is scanned back in'],
   ['KEY_ALERT_CC', 'U06BCCG4HT9 U06NBNSR9LG U06FJ0J1RH8', 'Slack IDs tagged on overdue and missing key posts (Andrew, Ben, Neil)'],
-  ['KEY_SLACK_WEBHOOK_URL', '', 'Webhook for key posts - leave blank to use SLACK_WEBHOOK_URL']
+  ['KEY_SLACK_WEBHOOK_URL', '', 'Webhook for key posts - leave blank to use SLACK_WEBHOOK_URL'],
+  ['INSP_PAGE_URL', 'https://andranf.github.io/ranfurlie-safety/inspection.html', 'Monthly H&S inspection page (staff)'],
+  ['INSP_DASH_URL', 'https://andranf.github.io/ranfurlie-safety/inspection-dashboard.html', 'Inspection dashboard (linked in Slack posts)'],
+  ['INSP_EVERY_DAYS', 31, 'An area is due for its next inspection this many days after the last one'],
+  ['INSP_REMIND', 'TRUE', 'Post a Slack reminder at 7am on weekdays when an area is due, then weekly until it is done'],
+  ['INSP_ALERT_CC', 'U06BCCG4HT9 U06NBNSR9LG U06FJ0J1RH8', 'Slack IDs tagged on High defects and overdue inspections (Andrew, Ben, Neil)'],
+  ['INSP_SLACK_WEBHOOK_URL', '', 'Webhook for inspection posts - leave blank to use SLACK_WEBHOOK_URL'],
+  ['INSP_PHOTO_FOLDER_ID', '', 'Drive folder for defect photos (made automatically, view-by-link so the dashboard can show them)'],
+  ['INSP_GO_LIVE', '', 'Inspections started (filled in automatically). The first one is due a week after this']
 ];
 
 const SEED_KEYS = [
@@ -257,7 +270,15 @@ const README_LINES = [
   'Returning a key (QR code KEY BACK): pick name, tap the key, confirm it is back in its spot. Anyone can return a key for someone else - Returned by shows who. Returned after the due time = Returned late.',
   'Due back: the next Tuesday after the key is taken, 10am (KEY_DUE_DAY / KEY_DUE_TIME). From 10am Tuesday every key still out is posted in Slack tagging the holder plus Andrew, Ben and Neil (KEY_ALERT_CC), then again at 10am each weekday until it is scanned back in.',
   "Missing key: 'Lost or missing key?' on the return page posts a Slack alert straight away and marks the key Lost. If it turns up, return it as normal and Slack is told it is back.",
-  "Fixing a record: type the time into 'Returned at' on the Key Log row (or set Status to Returned) and it closes. Manual runs: setupKeys, previewKeyCallout."
+  "Fixing a record: type the time into 'Returned at' on the Key Log row (or set Status to Returned) and it closes. Manual runs: setupKeys, previewKeyCallout.",
+  '',
+  'MONTHLY H&S INSPECTIONS',
+  'Staff page: INSP_PAGE_URL (inspection.html). Pick the area and your name, then answer every line Yes / No / N/A. A No needs a description (photos optional, up to 3). An N/A needs a reason. Equipment cards (AEDs, first aid kits, extinguishers) can be marked All OK or N/A as a whole. Expiry and service dates that have passed become defects automatically. Answers are saved on the phone as you go.',
+  'Submitting: the inspector ticks the declaration and signs. The Inspections tab records the start time, submit time, minutes taken, counts, score (Yes as a % of Yes + No), checklist version, device and signature. Every answer goes to Inspection Answers with the time it was answered.',
+  "Defects: one row each on Inspection Defects with a priority. If the same line is still open from an earlier inspection, that row is updated instead (Times seen, Last seen, Latest note). Ones fixed on the spot are closed straight away. Everything else stays Open until someone closes it out on the dashboard with their name, what was done and a signature.",
+  'Dashboard: INSP_DASH_URL. Score trend, pass rate by section, repeat failures, expiries and service dates, the defect register (close-out), inspection history (full record, Superintendent review and sign) and the N/A register. CSV export.',
+  'Slack: a summary posts when an inspection is submitted (High defects tag INSP_ALERT_CC). At 7am on weekdays an area that is due gets a reminder, then weekly until it is done (INSP_EVERY_DAYS, INSP_REMIND).',
+  'Changing the checklist: edit docs/inspect-checklists.js on GitHub and bump its version. Manual runs: setupInspections, previewInspectionReminder.'
 ];
 
 /* ------------------------------------------------------- manual runs */
@@ -405,6 +426,9 @@ function doGet(e) {
     if (!p.action || p.action === 'library') return json_(library_());
     if (p.action === 'ping') return json_({ ok: true, time: new Date().toISOString() });
     if (p.action === 'doc') return json_(easyDoc_(p.code));
+    if (p.action === 'inspStatus') return json_(inspStatus_());
+    if (p.action === 'inspData') return json_(inspData_(p));
+    if (p.action === 'inspRecord') return json_(inspRecord_(p));
     return json_({ ok: false, error: 'Unknown action' });
   } catch (err) {
     return json_({ ok: false, error: msg_(err) });
@@ -421,6 +445,9 @@ function doPost(e) {
     if (b.action === 'keyOut') return json_(keyOut_(b));
     if (b.action === 'keyIn') return json_(keyIn_(b));
     if (b.action === 'keyLost') return json_(keyLost_(b));
+    if (b.action === 'inspSubmit') return json_(inspSubmit_(b));
+    if (b.action === 'inspClose') return json_(inspClose_(b));
+    if (b.action === 'inspReview') return json_(inspReview_(b));
     return json_({ ok: false, error: 'Unknown action' });
   } catch (err) {
     return json_({ ok: false, error: msg_(err) });
@@ -1050,6 +1077,7 @@ function writeCsv_(id, head, rows) {
 /* ----------------------------------------------------------- reminders */
 
 function sendReminders() {
+  try { inspReminders_({ dryRun: false, force: false }); } catch (e) { console.error('inspection reminder failed: ' + e); }
   const r = remind_({ dryRun: false, force: false });
   console.log(r.message);
   return r.message;
@@ -1557,3 +1585,442 @@ function addMonths_(key, months) {
 }
 function short_(key) { return key ? Utilities.formatDate(new Date(dnum_(key) * 86400000), 'UTC', 'd/MM/yy') : ''; }
 function nice_(key) { return key ? Utilities.formatDate(new Date(dnum_(key) * 86400000), 'UTC', 'EEE d MMM') : ''; }
+
+/* =====================================================================
+ * MONTHLY H&S INSPECTIONS (docs/inspection.html + inspection-dashboard.html)
+ *
+ * Staff walk the area on their phone, answer every line Yes / No / N/A
+ * (No needs a description and can carry photos, N/A needs a reason),
+ * sign with a finger and submit. Three tabs make the register:
+ *   Inspections         one row per inspection (times, counts, score, signature, review sign-off)
+ *   Inspection Defects  one row per defect, Open until closed out with a name, note and signature
+ *   Inspection Answers  every answer from every inspection
+ * Slack: a summary posts when an inspection is submitted (High defects tag INSP_ALERT_CC), and a
+ * reminder posts at 7am on weekdays once an area is overdue (then weekly until it is done).
+ * Manual runs: setupInspections, previewInspectionReminder.
+ * ===================================================================== */
+
+const INSP_TAB = { MAIN: 'Inspections', DEF: 'Inspection Defects', ANS: 'Inspection Answers' };
+const INSP_HEAD = {
+  'Inspections': ['Submitted', 'Receipt', 'Area', 'Area name', 'Inspector', 'Started', 'Finished (device)', 'Minutes', 'Yes', 'No', 'N/A', 'Total', 'Score %',
+    'Checklist version', 'Other hazards', 'Declaration', 'Signature', 'Device', 'Client ID', 'Reviewed by', 'Reviewed at', 'Review comment', 'Review signature'],
+  'Inspection Defects': ['Defect ID', 'Receipt', 'Area', 'Found at', 'Found by', 'Section', 'Ref', 'Key', 'Item', 'Equipment', 'Description', 'Priority',
+    'Times seen', 'Last seen', 'Latest note', 'Photos', 'Photo IDs', 'Status', 'Fixed on the spot', 'Fix note', 'Closed by', 'Closed at', 'Close-out note', 'Close-out signature'],
+  'Inspection Answers': ['Submitted', 'Receipt', 'Area', 'Section', 'Key', 'Kind', 'Item', 'Equipment', 'Result', 'Value', 'Last done', 'Comment', 'N/A reason', 'Answered at']
+};
+const INSP_AREAS = { compound: 'Maintenance compound', clubhouse: 'Clubhouse' };
+
+// Manual run: create the inspection tabs and settings (also happens automatically on first use).
+function setupInspections() {
+  inspEnsure_(true);
+  console.log('Inspection tabs and settings ready.');
+}
+
+// Manual run: show what the overdue reminder would say right now (posts nothing).
+function previewInspectionReminder() {
+  const r = inspReminders_({ dryRun: true, force: true });
+  console.log(r || 'No area is due.');
+}
+
+function inspEnsure_(force) {
+  const ss = book_();
+  const props = PropertiesService.getScriptProperties();
+  if (!force && props.getProperty('insp_ready') === '4') return;
+  if (!('INSP_PAGE_URL' in settings_())) ensureSettings_();
+  const widths = {
+    'Inspections': [140, 160, 90, 170, 150, 140, 140, 70, 50, 50, 50, 55, 70, 110, 300, 300, 80, 220, 110, 150, 140, 260, 90],
+    'Inspection Defects': [190, 160, 90, 140, 150, 70, 55, 170, 330, 200, 330, 75, 70, 140, 280, 260, 120, 75, 80, 220, 150, 140, 300, 90],
+    'Inspection Answers': [140, 160, 90, 70, 170, 70, 330, 200, 70, 100, 100, 300, 240, 140]
+  };
+  const when = 'ddd d mmm yy h:mm am/pm';
+  const at = (name, h) => INSP_HEAD[name].indexOf(h) + 1;
+  [INSP_TAB.MAIN, INSP_TAB.DEF, INSP_TAB.ANS].forEach(name => {
+    let sh = ss.getSheetByName(name);
+    if (!sh) {
+      const after = ss.getSheetByName(TAB.KEYLOG) || ss.getSheetByName(TAB.REGISTER);
+      sh = ss.insertSheet(name, after ? after.getIndex() : ss.getSheets().length);
+    }
+    if (sh.getLastRow() === 0) {
+      sh.getRange(1, 1, 1, INSP_HEAD[name].length).setValues([INSP_HEAD[name]]);
+      styleHeader_(sh, INSP_HEAD[name].length);
+      (widths[name] || []).forEach((w, j) => sh.setColumnWidth(j + 1, w));
+      if (name === INSP_TAB.MAIN) {
+        ['Submitted', 'Started', 'Finished (device)', 'Reviewed at'].forEach(h => sh.getRange(2, at(name, h), 5000, 1).setNumberFormat(when));
+      }
+      if (name === INSP_TAB.DEF) {
+        ['Found at', 'Last seen', 'Closed at'].forEach(h => sh.getRange(2, at(name, h), 5000, 1).setNumberFormat(when));
+        sh.getRange(2, at(name, 'Priority'), 5000, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['High', 'Medium', 'Low'], true).build());
+        sh.getRange(2, at(name, 'Status'), 5000, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['Open', 'Closed'], true).build());
+        sh.getRange(2, at(name, 'Description'), 5000, 1).setWrap(true);
+      }
+      if (name === INSP_TAB.ANS) {
+        sh.getRange(2, at(name, 'Submitted'), 50000, 1).setNumberFormat(when);
+        sh.getRange(2, at(name, 'Value'), 50000, 2).setNumberFormat('@');
+      }
+    } else {
+      INSP_HEAD[name].forEach(h => ensureColumn_(sh, h));
+    }
+  });
+  if (!String(settings_().INSP_GO_LIVE || '').trim()) setSetting_('INSP_GO_LIVE', dayKey_(new Date()));
+  props.setProperty('insp_ready', '4');
+}
+
+function inspSettings_() {
+  const s = settings_();
+  return {
+    s,
+    every: num_(s.INSP_EVERY_DAYS, 31),
+    page: String(s.INSP_PAGE_URL || '').trim() || 'https://andranf.github.io/ranfurlie-safety/inspection.html',
+    dash: String(s.INSP_DASH_URL || '').trim() || 'https://andranf.github.io/ranfurlie-safety/inspection-dashboard.html',
+    hook: String(s.INSP_SLACK_WEBHOOK_URL || '').trim() || String(s.SLACK_WEBHOOK_URL || '').trim(),
+    cc: String(s.INSP_ALERT_CC || '').split(/[\s,;]+/).filter(x => /^[UW][A-Z0-9]{6,}$/.test(x))
+  };
+}
+
+function inspIso_(v) {
+  if (v instanceof Date) return isNaN(v.getTime()) ? '' : v.toISOString();
+  return v === null || v === undefined ? '' : String(v);
+}
+function inspDate_(v) { const d = v ? new Date(v) : null; return d && !isNaN(d.getTime()) ? d : ''; }
+function inspArea_(v) { const a = String(v || '').trim().toLowerCase(); if (!/^[a-z0-9-]{2,30}$/.test(a)) throw new Error('Unknown area.'); return a; }
+function inspBust_() {
+  const c = CacheService.getScriptCache();
+  const keys = ['insp:status'];
+  Object.keys(INSP_AREAS).forEach(a => [6, 12, 24].forEach(m => keys.push('insp:data:' + a + ':' + m)));
+  try { c.removeAll(keys); } catch (e) {}
+}
+function inspSigFile_(s, sig, label) {
+  const m = String(sig || '').match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+  if (!m || m[1].length < 200 || m[1].length > 600000) throw new Error('Please draw your signature.');
+  const now = new Date();
+  return DriveApp.getFolderById(s.SIGNATURE_FOLDER_ID).createFile(
+    Utilities.newBlob(Utilities.base64Decode(m[1]), 'image/png', Utilities.formatDate(now, TZ, 'yyyy-MM-dd HHmm') + ' ' + label + '.png'));
+}
+function inspPhotoFolder_(s) {
+  let id = String(s.INSP_PHOTO_FOLDER_ID || '').trim();
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { id = ''; } }
+  let parent = null;
+  try { parent = DriveApp.getFileById(SHEET_ID).getParents().next(); } catch (e) {}
+  const f = parent ? parent.createFolder('Inspection photos') : DriveApp.createFolder('Ranfurlie Inspection Photos');
+  share_(f);   // link-viewable so the dashboard can show thumbnails
+  setSetting_('INSP_PHOTO_FOLDER_ID', f.getId());
+  return f;
+}
+
+/* ------------------------------------------------------------ submit */
+
+function inspSubmit_(b) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(28000);
+  try {
+    inspEnsure_();
+    const ctx = context_();
+    const st = who_(ctx, b);
+    const name = String(st.Name).trim();
+    const area = inspArea_(b.site);
+    const cfg = inspSettings_();
+    const clientId = String(b.clientId || '').slice(0, 40);
+
+    const main = read_(INSP_TAB.MAIN);
+    if (clientId) {
+      const dup = main.rows.find(r => String(r['Client ID']) === clientId);
+      if (dup) return { ok: true, duplicate: true, receipt: String(dup.Receipt), submittedAt: Utilities.formatDate(asDate_(dup.Submitted) || new Date(), TZ, 'd MMM yyyy, h:mm a'), score: dup['Score %'] };
+    }
+    if (b.declare !== true) throw new Error('Tick the declaration to submit.');
+    const answers = Array.isArray(b.answers) ? b.answers : [];
+    if (answers.length < 5 || answers.length > 3000) throw new Error('The checklist did not come through. Reload and try again.');
+
+    // Recount on the server and enforce the rules (every No described, every N/A explained).
+    let yes = 0, no = 0, na = 0;
+    answers.forEach(a => {
+      const r = String(a.result || '');
+      if (r === 'text') return;
+      if (r === 'yes') yes++;
+      else if (r === 'no') { no++; if (String(a.comment || '').trim().length < 3) throw new Error('Every No needs a description: ' + String(a.label || a.key)); }
+      else if (r === 'na') { na++; if (String(a.naReason || '').trim().length < 3) throw new Error('Every N/A needs a reason: ' + String(a.label || a.key)); }
+      else throw new Error('Not every line is answered: ' + String(a.label || a.key));
+    });
+    const total = yes + no + na;
+    const score = yes + no ? Math.round(1000 * yes / (yes + no)) / 10 : '';
+
+    const now = new Date();
+    const started = inspDate_(b.startedAt);
+    const minutes = started ? Math.max(1, Math.round((now - started) / 60000)) : '';
+    const receipt = 'INS-' + Utilities.formatDate(now, TZ, 'yyMMdd') + '-' + sha_(name + '|' + area + '|' + now.getTime() + '|' + clientId).slice(0, 6).toUpperCase();
+    const sigFile = inspSigFile_(ctx.s, b.signature, name + ' Inspection ' + area + ' ' + receipt);
+
+    const mainRow = {
+      'Submitted': now, 'Receipt': receipt, 'Area': area, 'Area name': String(b.siteName || INSP_AREAS[area] || area).slice(0, 80), 'Inspector': name,
+      'Started': started, 'Finished (device)': inspDate_(b.finishedAt), 'Minutes': minutes, 'Yes': yes, 'No': no, 'N/A': na, 'Total': total, 'Score %': score,
+      'Checklist version': String(b.version || '').slice(0, 30), 'Other hazards': String(b.other || '').slice(0, 3000),
+      'Declaration': String(b.declaration || '').slice(0, 400), 'Signature': '=HYPERLINK("' + sigFile.getUrl() + '","View")',
+      'Device': String(b.ua || '').slice(0, 160), 'Client ID': clientId
+    };
+    main.sh.appendRow(main.head.map(h => (h in mainRow ? mainRow[h] : '')));
+
+    // Answers - one block write
+    const ans = read_(INSP_TAB.ANS);
+    const aRows = answers.map(a => {
+      const o = {
+        'Submitted': now, 'Receipt': receipt, 'Area': area, 'Section': String(a.sec || '').slice(0, 8), 'Key': String(a.key || '').slice(0, 80),
+        'Kind': String(a.kind || '').slice(0, 12), 'Item': String(a.label || '').slice(0, 300), 'Equipment': String(a.asset || '').slice(0, 120),
+        'Result': String(a.result || ''), 'Value': String(a.value || '').slice(0, 120), 'Last done': String(a.last || '').slice(0, 20),
+        'Comment': String(a.comment || '').slice(0, 1500), 'N/A reason': String(a.naReason || '').slice(0, 500), 'Answered at': inspDate_(a.at)
+      };
+      return ans.head.map(h => (h in o ? o[h] : ''));
+    });
+    if (aRows.length) {
+      const at = ans.sh.getLastRow() + 1;
+      const vc = ans.col('Value'), lc = ans.col('Last done');
+      if (vc > 0) ans.sh.getRange(at, vc, aRows.length, 1).setNumberFormat('@');
+      if (lc > 0) ans.sh.getRange(at, lc, aRows.length, 1).setNumberFormat('@');
+      ans.sh.getRange(at, 1, aRows.length, ans.head.length).setValues(aRows);
+    }
+
+    // Defects - photos to Drive. A defect already open for the same line is updated (Times seen +1), not duplicated.
+    const defs = Array.isArray(b.defects) ? b.defects.slice(0, 300) : [];
+    const def = read_(INSP_TAB.DEF);
+    const openBy = {};
+    def.rows.forEach(r => { if (String(r.Area) === area && String(r.Status).trim() !== 'Closed' && String(r.Key)) openBy[String(r.Key)] = r; });
+    const rank = { High: 3, Medium: 2, Low: 1 };
+    let folder = null, photoErr = '', repeats = 0;
+    const dRows = [];
+    defs.forEach((d, i) => {
+      const id = receipt + '-' + ('0' + (i + 1)).slice(-2);
+      const urls = [], ids = [];
+      (Array.isArray(d.photos) ? d.photos.slice(0, 3) : []).forEach((p, j) => {
+        const m = String(p || '').match(/^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]+)$/);
+        if (!m) return;
+        try {
+          folder = folder || inspPhotoFolder_(ctx.s);
+          const f = folder.createFile(Utilities.newBlob(Utilities.base64Decode(m[2]), 'image/' + m[1], id + ' ' + (j + 1) + (m[1] === 'png' ? '.png' : '.jpg')));
+          share_(f);
+          urls.push(f.getUrl()); ids.push(f.getId());
+        } catch (e) { photoErr = String(e); console.warn('photo save failed: ' + e); }
+      });
+      const fixed = d.fixed === true;
+      const pr = ['High', 'Medium', 'Low'].indexOf(String(d.priority)) >= 0 ? String(d.priority) : 'Medium';
+      const prev = openBy[String(d.key || '')];
+      if (prev) {
+        repeats++;
+        d.repeat = num_(prev['Times seen'], 1) + 1;
+        const upd = { 'Times seen': d.repeat, 'Last seen': now, 'Latest note': (Utilities.formatDate(now, TZ, 'd MMM') + ' ' + name + ': ' + String(d.description || '')).slice(0, 1500) };
+        if ((rank[pr] || 2) > (rank[String(prev.Priority)] || 2)) upd.Priority = pr;
+        if (urls.length) {
+          upd.Photos = [String(prev.Photos || '')].concat(urls).filter(Boolean).join('\n');
+          upd['Photo IDs'] = [String(prev['Photo IDs'] || '')].concat(ids).filter(Boolean).join(',');
+        }
+        if (fixed) Object.assign(upd, { 'Status': 'Closed', 'Fixed on the spot': 'Yes', 'Fix note': String(d.fixNote || '').slice(0, 800), 'Closed by': name, 'Closed at': now,
+          'Close-out note': 'Fixed during the inspection' + (d.fixNote ? ': ' + String(d.fixNote).slice(0, 700) : '') });
+        writeRow_(def, prev._row, upd);
+        return;
+      }
+      const o = {
+        'Defect ID': id, 'Receipt': receipt, 'Area': area, 'Found at': now, 'Found by': name, 'Section': String(d.sec || '').slice(0, 8),
+        'Ref': String(d.ref || '').slice(0, 12), 'Key': String(d.key || '').slice(0, 80), 'Item': String(d.label || '').slice(0, 300),
+        'Equipment': String(d.asset || '').slice(0, 120), 'Description': String(d.description || '').slice(0, 1500), 'Priority': pr,
+        'Times seen': 1, 'Last seen': now, 'Photos': urls.join('\n'), 'Photo IDs': ids.join(','), 'Status': fixed ? 'Closed' : 'Open', 'Fixed on the spot': fixed ? 'Yes' : '',
+        'Fix note': fixed ? String(d.fixNote || '').slice(0, 800) : '', 'Closed by': fixed ? name : '', 'Closed at': fixed ? now : '',
+        'Close-out note': fixed ? 'Fixed during the inspection' + (d.fixNote ? ': ' + String(d.fixNote).slice(0, 700) : '') : ''
+      };
+      dRows.push(def.head.map(h => (h in o ? o[h] : '')));
+    });
+    if (dRows.length) def.sh.getRange(def.sh.getLastRow() + 1, 1, dRows.length, def.head.length).setValues(dRows);
+
+    inspBust_();
+    try { inspSubmitSlack_(ctx, cfg, { name, area, areaName: mainRow['Area name'], score, yes, no, na, minutes, defs, receipt }); } catch (e) { console.warn('inspection slack: ' + e); }
+    return { ok: true, receipt, submittedAt: Utilities.formatDate(now, TZ, 'd MMM yyyy, h:mm a'), score, photoError: photoErr || undefined };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function inspSubmitSlack_(ctx, cfg, x) {
+  if (!cfg.hook) return;
+  const open = x.defs.filter(d => d.fixed !== true);
+  const high = open.filter(d => d.priority === 'High');
+  const lines = [':clipboard: *Monthly inspection: ' + x.areaName + '* by ' + slackName_(ctx, x.name) + (x.score === '' ? '' : ' · *' + x.score + '%*'),
+    x.yes + ' yes · ' + x.no + ' defect' + (x.no === 1 ? '' : 's') + ' · ' + x.na + ' N/A' + (x.minutes ? ' · ' + x.minutes + ' min' : '')];
+  if (high.length) lines.push(':red_circle: *High:* ' + high.slice(0, 5).map(d => (d.ref ? d.ref + ' ' : '') + (d.asset ? d.asset + ': ' : '') + String(d.description || d.label).slice(0, 80) + (d.repeat ? ' _(seen ' + d.repeat + ' times)_' : '')).join('; ') + (high.length > 5 ? ' (+' + (high.length - 5) + ' more)' : ''));
+  const med = open.filter(d => d.priority === 'Medium').length, low = open.filter(d => d.priority === 'Low').length;
+  if (med || low) lines.push(':large_orange_circle: ' + [med ? med + ' medium' : '', low ? low + ' low' : ''].filter(Boolean).join(' · '));
+  const fixed = x.defs.length - open.length;
+  if (fixed) lines.push(':white_check_mark: ' + fixed + ' fixed on the spot');
+  lines.push('<' + cfg.dash + '|Open the dashboard>');
+  if (high.length && cfg.cc.length) lines.push('cc ' + cfg.cc.map(id => '<@' + id + '>').join(' '));
+  UrlFetchApp.fetch(cfg.hook, { method: 'post', contentType: 'application/json', payload: JSON.stringify({ text: lines.join('\n'), link_names: true }), muteHttpExceptions: true });
+}
+
+/* --------------------------------------------------- close-out / review */
+
+function inspClose_(b) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    inspEnsure_();
+    const ctx = context_();
+    const name = String(who_(ctx, b).Name).trim();
+    const note = String(b.note || '').trim();
+    if (note.length < 3) throw new Error('Say what was done to fix it.');
+    const t = read_(INSP_TAB.DEF);
+    const r = t.rows.find(x => String(x['Defect ID']).trim() === String(b.defectId || '').trim());
+    if (!r) throw new Error('Defect not found. Refresh the page.');
+    if (String(r.Status).trim() === 'Closed') throw new Error('Already closed out by ' + r['Closed by'] + '.');
+    const f = inspSigFile_(ctx.s, b.signature, name + ' close-out ' + r['Defect ID']);
+    const now = new Date();
+    writeRow_(t, r._row, { 'Status': 'Closed', 'Closed by': name, 'Closed at': now, 'Close-out note': note.slice(0, 1500), 'Close-out signature': '=HYPERLINK("' + f.getUrl() + '","View")' });
+    inspBust_();
+    return { ok: true, closedAt: now.toISOString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function inspReview_(b) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    inspEnsure_();
+    const ctx = context_();
+    const name = String(who_(ctx, b).Name).trim();
+    const t = read_(INSP_TAB.MAIN);
+    const r = t.rows.find(x => String(x.Receipt).trim() === String(b.id || '').trim());
+    if (!r) throw new Error('Inspection not found. Refresh the page.');
+    if (String(r['Reviewed by'] || '').trim()) throw new Error('Already reviewed by ' + r['Reviewed by'] + '.');
+    const f = inspSigFile_(ctx.s, b.signature, name + ' review ' + r.Receipt);
+    const now = new Date();
+    writeRow_(t, r._row, { 'Reviewed by': name, 'Reviewed at': now, 'Review comment': String(b.comment || '').slice(0, 1500), 'Review signature': '=HYPERLINK("' + f.getUrl() + '","View")' });
+    inspBust_();
+    return { ok: true, reviewedAt: now.toISOString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* --------------------------------------------------------------- reads */
+
+function inspMainOut_(r) {
+  const sig = String(r.Signature || '').match(/HYPERLINK\("([^"]+)"/);
+  return {
+    id: String(r.Receipt), site: String(r.Area), siteName: String(r['Area name'] || ''), inspector: String(r.Inspector),
+    startedAt: inspIso_(r.Started), submittedAt: inspIso_(r.Submitted), durationMin: r.Minutes, yes: r.Yes, no: r.No, na: r['N/A'], total: r.Total,
+    score: r['Score %'], version: String(r['Checklist version'] || ''), other: String(r['Other hazards'] || ''),
+    reviewedBy: String(r['Reviewed by'] || ''), reviewedAt: inspIso_(r['Reviewed at']), reviewComment: String(r['Review comment'] || ''),
+    declaration: String(r.Declaration || ''), device: String(r.Device || ''), signatureUrl: sig ? sig[1] : ''
+  };
+}
+function inspDefOut_(r) {
+  const ids = String(r['Photo IDs'] || '').split(',').map(x => x.trim()).filter(Boolean);
+  return {
+    id: String(r['Defect ID']), receipt: String(r.Receipt), site: String(r.Area), foundAt: inspIso_(r['Found at']), foundBy: String(r['Found by']),
+    sec: String(r.Section), ref: String(r.Ref || ''), key: String(r.Key), label: String(r.Item), asset: String(r.Equipment || ''),
+    description: String(r.Description || ''), priority: String(r.Priority || 'Medium'), timesSeen: num_(r['Times seen'], 1), lastSeen: inspIso_(r['Last seen']), latestNote: String(r['Latest note'] || ''), status: String(r.Status || 'Open').trim() === 'Closed' ? 'Closed' : 'Open',
+    fixedOnSpot: String(r['Fixed on the spot']) === 'Yes', fixNote: String(r['Fix note'] || ''), closedBy: String(r['Closed by'] || ''),
+    closedAt: inspIso_(r['Closed at']), closeNote: String(r['Close-out note'] || ''),
+    photos: ids.map(id => ({ id, url: 'https://drive.google.com/file/d/' + id + '/view' }))
+  };
+}
+const INSP_ANS_COLS = ['id', 'key', 'sec', 'kind', 'label', 'asset', 'result', 'value', 'last', 'comment', 'naReason'];
+function inspAnsOut_(r) {
+  const v = r.Value instanceof Date ? dayKey_(r.Value) : String(r.Value || '');
+  const l = r['Last done'] instanceof Date ? dayKey_(r['Last done']) : String(r['Last done'] || '');
+  return [String(r.Receipt), String(r.Key), String(r.Section), String(r.Kind), String(r.Item), String(r.Equipment || ''), String(r.Result), v, l, String(r.Comment || ''), String(r['N/A reason'] || '')];
+}
+
+function inspStatus_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('insp:status');
+  if (hit) return JSON.parse(hit);
+  inspEnsure_();
+  const cfg = inspSettings_();
+  const sites = {};
+  Object.keys(INSP_AREAS).forEach(a => { sites[a] = { last: null, nextDue: '', openDefects: 0 }; });
+  read_(INSP_TAB.MAIN).rows.forEach(r => {
+    const a = String(r.Area); const d = asDate_(r.Submitted);
+    if (!d) return;
+    sites[a] = sites[a] || { last: null, nextDue: '', openDefects: 0 };
+    if (!sites[a].last || new Date(sites[a].last.submittedAt) < d) sites[a].last = { id: String(r.Receipt), submittedAt: d.toISOString(), inspector: String(r.Inspector), score: r['Score %'] };
+  });
+  read_(INSP_TAB.DEF).rows.forEach(r => { const a = String(r.Area); if (sites[a] && String(r.Status).trim() !== 'Closed') sites[a].openDefects++; });
+  const goLive = String(cfg.s.INSP_GO_LIVE || '').trim() || dayKey_(new Date());
+  Object.keys(sites).forEach(a => {
+    const base = sites[a].last ? dayKey_(new Date(sites[a].last.submittedAt)) : goLive;
+    sites[a].nextDue = sites[a].last ? addDays_(base, cfg.every) : addDays_(base, 7);   // first one: a week after go-live
+  });
+  const out = { ok: true, sites, everyDays: cfg.every, generated: new Date().toISOString() };
+  try { cache.put('insp:status', JSON.stringify(out), 60); } catch (e) {}
+  return out;
+}
+
+function inspData_(p) {
+  const area = inspArea_(p.site || 'compound');
+  const months = [6, 12, 24].indexOf(Number(p.months)) >= 0 ? Number(p.months) : 12;
+  const ck = 'insp:data:' + area + ':' + months;
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get(ck);
+  if (hit) return JSON.parse(hit);
+  inspEnsure_();
+  const since = new Date(); since.setMonth(since.getMonth() - months);
+  const insp = read_(INSP_TAB.MAIN).rows.filter(r => String(r.Area) === area && (asDate_(r.Submitted) || 0) >= since).map(inspMainOut_);
+  const ids = {}; insp.forEach(x => { ids[x.id] = 1; });
+  const rows = read_(INSP_TAB.ANS).rows
+    .filter(r => ids[String(r.Receipt)] && (String(r.Result) === 'no' || String(r.Result) === 'na' || String(r.Kind) === 'date' || String(r.Kind) === 'service'))
+    .map(inspAnsOut_);
+  const defects = read_(INSP_TAB.DEF).rows
+    .filter(r => String(r.Area) === area && (String(r.Status).trim() !== 'Closed' || (asDate_(r['Found at']) || 0) >= since))
+    .map(inspDefOut_);
+  const staff = read_(TAB.STAFF).rows.filter(isActive_).map(r => String(r.Name).trim()).sort();
+  const out = { ok: true, site: area, months, inspections: insp, answers: { cols: INSP_ANS_COLS, rows }, defects, staff, generated: new Date().toISOString() };
+  try { const txt = JSON.stringify(out); if (txt.length < 95000) cache.put(ck, txt, 60); } catch (e) {}
+  return out;
+}
+
+function inspRecord_(p) {
+  inspEnsure_();
+  const id = String(p.id || '').trim();
+  const r = read_(INSP_TAB.MAIN).rows.find(x => String(x.Receipt).trim() === id);
+  if (!r) throw new Error('Inspection not found.');
+  const answers = read_(INSP_TAB.ANS).rows.filter(x => String(x.Receipt).trim() === id).map(x => {
+    const a = inspAnsOut_(x); const o = {};
+    INSP_ANS_COLS.forEach((c, i) => { o[c] = a[i]; });
+    o.at = inspIso_(x['Answered at']);
+    return o;
+  });
+  const defects = read_(INSP_TAB.DEF).rows.filter(x => String(x.Receipt).trim() === id).map(inspDefOut_);
+  return { ok: true, inspection: inspMainOut_(r), answers, defects };
+}
+
+/* ------------------------------------------------- overdue reminders */
+
+// Called from the 7am daily trigger. Posts on weekdays once an area is overdue, then weekly.
+function inspReminders_(opt) {
+  opt = opt || {};
+  inspEnsure_();
+  const cfg = inspSettings_();
+  if (!opt.force && !bool_(cfg.s.INSP_REMIND === '' ? 'TRUE' : cfg.s.INSP_REMIND)) return '';
+  const dow = dowOf_(new Date());
+  if (!opt.force && dow > 5) return '';
+  const st = inspStatus_().sites;
+  const props = PropertiesService.getScriptProperties();
+  const today = dayKey_(new Date());
+  const ctx = context_();
+  const out = [];
+  Object.keys(st).forEach(a => {
+    if (a === 'clubhouse' && !st[a].last) return;   // clubhouse checklist not live yet
+    const s = st[a];
+    if (!s.nextDue || s.nextDue > today) return;
+    const lastSent = props.getProperty('insp_remind_' + a) || '';
+    if (!opt.force && lastSent && addDays_(lastSent, 7) > today) return;
+    const lines = [':clipboard: *Monthly H&S inspection due: ' + (INSP_AREAS[a] || a) + '*',
+      (s.last ? 'Last done ' + nice_(dayKey_(new Date(s.last.submittedAt))) + ' by ' + slackName_(ctx, s.last.inspector) + '.' : 'Not done yet.') +
+      (s.openDefects ? ' ' + s.openDefects + ' defect' + (s.openDefects === 1 ? '' : 's') + ' still open.' : '') +
+      ' <' + cfg.page + '?site=' + a + '|Start it here>'];
+    if (cfg.cc.length) lines.push('cc ' + cfg.cc.map(id => '<@' + id + '>').join(' '));
+    const text = lines.join('\n');
+    out.push(text);
+    if (opt.dryRun || !cfg.hook) return;
+    const res = UrlFetchApp.fetch(cfg.hook, { method: 'post', contentType: 'application/json', payload: JSON.stringify({ text, link_names: true }), muteHttpExceptions: true });
+    if (res.getResponseCode() === 200) props.setProperty('insp_remind_' + a, today);
+  });
+  return out.join('\n\n');
+}
