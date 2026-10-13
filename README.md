@@ -44,3 +44,15 @@ Copy `backend/Code.gs` into the sheet's Apps Script editor, save, then **Deploy 
 
 Put `Guest` in a person's Groups on the Staff tab to give them access for review only: they get just the documents whose *Applies to* includes `Guest`, and they're never tagged in Slack.
 
+## Monthly H&S inspections
+
+Staff walk-around checklist and register: https://andranf.github.io/ranfurlie-safety/inspection.html
+Dashboard: https://andranf.github.io/ranfurlie-safety/inspection-dashboard.html
+
+- **Areas:** Maintenance compound (live). Clubhouse is listed as coming soon — add its checklist to `docs/inspect-checklists.js` and remove `comingSoon`.
+- **Doing one:** scan the wall poster (`docs/inspection/inspection-poster.pdf`, QR `qr-compound.png`, rebuild with `python3 tools/inspection_poster.py`), pick the area and your name (remembered on the phone, same as the SWP page). Every line is Yes / No / N/A. **No** needs a description, up to 3 photos and a priority; ticking *Fixed on the spot* closes it straight away. **N/A** needs a reason (quick-pick or typed). Equipment cards (AEDs, first aid kits, extinguishers) have *All OK* and whole-item *N/A*. Expiry and service dates that have passed become defects automatically. The RCD test is quarterly, so it defaults to N/A outside Jan/Apr/Jul/Oct. Answers save on the phone as you go; with no signal at submit it is kept on the phone and sent next time the page opens.
+- **Sign-off:** declaration + finger signature. Recorded: start time, every answer's time, submit time, minutes taken, device, signature (private Signatures folder), score = Yes ÷ (Yes + No).
+- **Register (sheet tabs):** *Inspections* (one row each, plus Superintendent review), *Inspection Defects* (Open until closed out; a line that fails again while still open updates the same row — Times seen / Last seen / Latest note), *Inspection Answers* (every answer).
+- **Dashboard:** last inspection and next due, score trend, pass rate by section, repeat failures, expiries & service dates, defect register with close-out (name, what was done, signature), inspection history (full record, print, *Review & sign*), N/A register, CSV export. Flags inspections done in under 15 minutes.
+- **Slack:** summary when an inspection is submitted (High defects tag `INSP_ALERT_CC`); 7am weekday reminder when an area is due (31 days after the last one), then weekly until it's done. Settings: `INSP_EVERY_DAYS`, `INSP_REMIND`, `INSP_ALERT_CC`, `INSP_SLACK_WEBHOOK_URL` (blank = same channel as the safety reminders).
+- **Changing the checklist:** edit `docs/inspect-checklists.js` and bump `version`. Manual runs: `setupInspections`, `previewInspectionReminder`.
