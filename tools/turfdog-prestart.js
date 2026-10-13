@@ -31,7 +31,7 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const TODAY = dayKey(new Date());
 
-const S = { stage: 'board', shift: 1, board: {}, sig: {}, same: {}, done: {}, checks: null, issues: null, steps: 0, warn: '', result: '' };
+const S = { stage: 'board', board: {}, last: null, same: 0, from: null, cLast: null, cSame: 0, cFrom: null, checks: null, issues: null, steps: 0, warn: '', result: '' };
 
 // "Tue, Oct 13" on the whiteboard date button -> true when it is today
 function boardDate() {
@@ -54,37 +54,51 @@ function chips() {
   }).filter(r => r.staff && !/^available staff/i.test(r.task));
 }
 
+const peopleOf = rows => JSON.stringify(rows.map(r => [r.task, r.staff]));
+
+// Reads whichever shift is showing once it has settled, then switches to the next unread one.
+// TurfDog keeps showing the old shift for a few seconds after a switch (first as it was, then without machines),
+// so after a switch a read only counts once the people on the board have changed and two reads agree.
 function boardStep() {
-  const n = S.shift;
-  const sb = document.querySelector('button[aria-label="Shift ' + n + '"]');
-  if (!sb) {
+  const main = document.querySelector('main') || document.body;
+  if (/Loading workboard/i.test(main.innerText)) return 'waiting for the board to load';
+  const btns = [1, 2, 3].map(n => document.querySelector('button[aria-label="Shift ' + n + '"]'));
+  if (!btns[0]) {
     const w = byText('button', 'Whiteboard');
-    if (w) { w.click(); return 'opening the whiteboard'; }
+    S.wb = (S.wb || 0) + 1;
+    if (w && S.wb % 5 === 1) { w.click(); return 'opening the whiteboard'; }
     return 'waiting for the board';
   }
   const d = boardDate();
   if (d === null) return 'waiting for the board date';
   if (d !== true) return 'error: the board is showing ' + d + ', not today';
-  if (!/\bbg-primary\b/.test(sb.className)) { sb.click(); S.sig[n] = null; S.same[n] = 0; return 'switching to shift ' + n; }
+  const active = btns.findIndex(b => b && /\bbg-primary\b/.test(b.className)) + 1;
   const rows = chips();
   const sig = JSON.stringify(rows);
-  if (S.sig[n] !== sig) { S.sig[n] = sig; S.same[n] = 0; return 'reading shift ' + n; }
-  S.same[n] = (S.same[n] || 0) + 1;
-  // After a shift change TurfDog briefly shows the old shift's people with no machines. Accept a read once it is
-  // steady, and wait longer if it still looks like the previous shift.
-  const people = JSON.stringify(rows.map(r => [r.task, r.staff]));
-  const prev = S.done[n - 1];
-  if (prev && rows.length && people === prev && S.same[n] < 4) return 'reading shift ' + n;
-  S.board[n] = rows;
-  S.done[n] = people;
-  const msg = 'shift ' + n + ': ' + rows.length + ' on the board, ' + rows.filter(r => r.machines.length).length + ' with machines';
-  if (n < 3) S.shift = n + 1;
-  else S.stage = 'checksNav';
-  return msg;
+  if (sig !== S.last) { S.last = sig; S.same = 0; return 'reading the board'; }
+  S.same++;
+  let msg = '';
+  if (active && !S.board[active]) {
+    const fresh = S.from === null || S.from === undefined || peopleOf(rows) !== S.from || S.same >= 6;
+    const noMachines = !rows.some(r => r.machines.length);
+    if (!fresh || (noMachines && S.same < 3)) return 'reading shift ' + active;
+    S.board[active] = rows;
+    S.from = null;
+    msg = 'shift ' + active + ': ' + rows.length + ' on the board, ' + rows.filter(r => r.machines.length).length + ' with machines';
+  }
+  const todo = [1, 2, 3].filter(n => !S.board[n]);
+  if (!todo.length) { S.stage = 'checksNav'; return msg || 'board read'; }
+  if (msg) return msg;
+  const b = btns[todo[0] - 1];
+  if (!b) { S.board[todo[0]] = []; return 'no shift ' + todo[0] + ' button'; }
+  S.from = peopleOf(rows);
+  S.last = null;
+  b.click();
+  return 'switching to shift ' + todo[0];
 }
 
 function checksNav() {
-  if (byText('button', 'Issues only') && document.querySelector('table')) { S.stage = 'checks'; S.sig.c = null; return 'pre-check log open'; }
+  if (byText('button', 'Issues only') && document.querySelector('table')) { S.stage = 'checks'; S.cLast = null; return 'pre-check log open'; }
   const pc = all('[role=tab],button').find(e => txt(e) === 'Pre-Check');
   if (pc) { press(pc); return 'opening Pre-Check'; }
   const sc = all('h2,h3,h4').find(e => txt(e) === 'Safety Checklists');
@@ -103,23 +117,36 @@ function parseAt(s) {
   return dayKey(d) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
 
+// The pre-check table. After the Issues only filter is switched, a read only counts once the table has changed
+// (or stayed the same for 6 reads, e.g. nothing to filter out) and two reads agree.
 function readChecks(issues) {
   const io = byText('button', 'Issues only');
   if (!io) { S.stage = 'checksNav'; return 'reopening the pre-check log'; }
-  const on = io.getAttribute('aria-pressed') === 'true';
-  if (on !== issues) { io.click(); S.sig.c = null; return issues ? 'filtering to issues' : 'clearing the issues filter'; }
   const rows = all('table tbody tr').map(tr => Array.from(tr.querySelectorAll('td')).map(txt)).filter(c => c.length >= 4)
     .map(c => ({ at: parseAt(c[0]), staff: c[1], machine: c[2], checklist: c[3], items: c[4] || '' })).filter(r => r.at && r.staff && r.machine);
   const sig = JSON.stringify(rows);
-  if (S.sig.c !== sig) { S.sig.c = sig; return 'reading ' + (issues ? 'issues' : 'pre-starts'); }
+  const on = io.getAttribute('aria-pressed') === 'true';
+  if (on !== issues) {
+    if (sig !== S.cLast) { S.cLast = sig; return 'reading the pre-check log'; }
+    S.cFrom = sig;
+    S.cLast = null;
+    io.click();
+    return issues ? 'filtering to issues' : 'clearing the issues filter';
+  }
+  if (sig !== S.cLast) { S.cLast = sig; S.cSame = 0; return 'reading ' + (issues ? 'issues' : 'pre-starts'); }
+  S.cSame++;
+  if (S.cFrom && sig === S.cFrom && S.cSame < 6) return 'reading ' + (issues ? 'issues' : 'pre-starts');
+  S.cFrom = null;
   const todays = rows.filter(r => r.at.slice(0, 10) === TODAY);
   if (issues) {
     S.issues = todays;
+    S.cLast = null;
     io.click();
     S.stage = 'send';
     return todays.length + ' with issues today';
   }
   S.checks = todays;
+  S.cLast = null;
   const more = all('button').find(b => /^(next|load more|show more|older)$/i.test(txt(b)) && !b.disabled);
   if (rows.length && todays.length === rows.length && more) S.warn = 'every pre-start on the page is today and there is another page';
   S.stage = 'issues';
@@ -146,7 +173,7 @@ async function send() {
 async function next() {
   S.steps++;
   if (/\/auth/.test(location.pathname) || byText('button', 'Login')) return 'error: TurfDog is logged out';
-  if (S.steps > 60) return 'error: stuck at ' + S.stage + ' after 60 steps';
+  if (S.steps > 90) return 'error: stuck at ' + S.stage + ' after 90 steps';
   try {
     if (S.stage === 'board') return boardStep();
     if (S.stage === 'checksNav') return checksNav();
