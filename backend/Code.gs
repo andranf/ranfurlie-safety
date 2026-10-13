@@ -2321,8 +2321,9 @@ function focusPlanBuild_(s, preview) {
 }
 
 function focusPlan_(p) {
-  const s = settings_();
+  let s = settings_();
   prestartAuth_(s, p.key);
+  if (!('FOCUS_QUEUE' in s)) { ensureSettings_(); s = settings_(); }
   const plan = focusPlanBuild_(s, false);
   PropertiesService.getScriptProperties().setProperty('focus:plan', JSON.stringify(plan));
   return Object.assign({ ok: true }, plan);
