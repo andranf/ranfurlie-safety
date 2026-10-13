@@ -2310,7 +2310,7 @@ function focusPlanBuild_(s, preview) {
     const code = String(next.Code).trim();
     const q = (quizzes[code.toUpperCase()] || []).length;
     const t = [':clipboard: **Safe work procedure to sign: ' + name(next) + '**',
-      'Read it on your phone, ' + (q ? 'answer the ' + q + '-question check ' : '') + 'and sign. First time? Pick your name from the list. Your name comes off here once you\'ve signed.',
+      (q ? 'Read it on your phone, answer the ' + q + '-question check and sign.' : 'Read it on your phone and sign.') + ' First time? Pick your name from the list. Your name comes off here once you\'ve signed.',
       ':point_right: ' + focusLink_(s, code),
       nextOut.need.map(focusTag_).join(' ')];
     posts.push({ kind: 'header', code, thread: '', broadcast: false, text: t.join('\n') });
