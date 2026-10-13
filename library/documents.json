@@ -1,0 +1,200 @@
+[
+ {
+  "code": "CHM-01",
+  "title": "Pesticide Mixing, Loading & Application",
+  "category": "Chemicals & Spraying",
+  "risk": "High",
+  "applies": "Spray",
+  "read_seconds": 300,
+  "summary": "The label is the law: who can spray, weather and drift, PPE, mixing and loading, rinsing containers, applying, clean-down and records.",
+  "held": true,
+  "file": "drafts/CHM-01.docx"
+ },
+ {
+  "code": "CHM-05",
+  "title": "Chemical Exposure – Decontamination & First Aid",
+  "category": "Chemicals & Spraying",
+  "risk": "High",
+  "applies": "All",
+  "read_seconds": 240,
+  "summary": "What to do after a chemical splash, spill on skin, breathing in or swallowing: decontaminate, first aid, when to call 000, and reporting.",
+  "held": true,
+  "file": "drafts/CHM-05.docx"
+ },
+ {
+  "code": "OHS-01",
+  "title": "Course Maintenance Site Induction",
+  "category": "General OHS & Emergency",
+  "risk": "Medium",
+  "applies": "All",
+  "read_seconds": 240,
+  "summary": "Start here: who's who, how the day works, the rules everyone works to, reporting, emergencies, and your OHS rights and duties.",
+  "held": false,
+  "file": "OHS-01.docx"
+ },
+ {
+  "code": "OHS-02",
+  "title": "Emergency Procedures & Evacuation",
+  "category": "General OHS & Emergency",
+  "risk": "High",
+  "applies": "All",
+  "read_seconds": 240,
+  "summary": "How to raise the alarm, call 000, evacuate the shed and course, get to the assembly point and follow the wardens.",
+  "held": true,
+  "file": "drafts/OHS-02.docx"
+ },
+ {
+  "code": "OHS-03",
+  "title": "Medical Emergency & Ambulance Access",
+  "category": "General OHS & Emergency",
+  "risk": "High",
+  "applies": "All",
+  "read_seconds": 240,
+  "summary": "What to do when someone is seriously hurt or ill: DRSABCD, CPR and the AED, calling 000, and getting the ambulance to the right hole.",
+  "held": true,
+  "file": "drafts/OHS-03.docx"
+ },
+ {
+  "code": "OHS-04",
+  "title": "Lightning & Severe Weather",
+  "category": "General OHS & Emergency",
+  "risk": "High",
+  "applies": "All",
+  "read_seconds": 240,
+  "summary": "Acting on UBIMET lightning alerts, safe and unsafe shelter, the 30-minute rule, flash flooding and storm clean-up hazards.",
+  "held": false,
+  "file": "OHS-04.docx"
+ },
+ {
+  "code": "OHS-05",
+  "title": "Heat Stress & Hot Weather Work",
+  "category": "General OHS & Emergency",
+  "risk": "Medium",
+  "applies": "All",
+  "read_seconds": 210,
+  "summary": "Preventing heat illness on hot days – planning the work, water and rest, spotting the signs, and first aid for heatstroke.",
+  "held": false,
+  "file": "OHS-05.docx"
+ },
+ {
+  "code": "OHS-06",
+  "title": "Fire Danger Days & Total Fire Bans",
+  "category": "General OHS & Emergency",
+  "risk": "High",
+  "applies": "All",
+  "read_seconds": 240,
+  "summary": "Fire Danger Ratings, Total Fire Ban and Fire Danger Period rules for hot work, mowers and machinery, and what to do if a grassfire starts.",
+  "held": false,
+  "file": "OHS-06.docx"
+ },
+ {
+  "code": "OHS-07",
+  "title": "Fire Extinguishers & Fire Wardens",
+  "category": "General OHS & Emergency",
+  "risk": "Medium",
+  "applies": "All",
+  "read_seconds": 180,
+  "summary": "Classes of fire, which extinguisher to use, PASS, when to fight or get out, equipment checks, and what fire wardens do.",
+  "held": true,
+  "file": "drafts/OHS-07.docx"
+ },
+ {
+  "code": "OHS-08",
+  "title": "Spill Response & Spill Kits",
+  "category": "General OHS & Emergency",
+  "risk": "High",
+  "applies": "All",
+  "read_seconds": 240,
+  "summary": "Fuel, oil, hydraulic, chemical, fertiliser and acid spills: stay safe, stop, contain, absorb, report – and keep it out of drains and water.",
+  "held": true,
+  "file": "drafts/OHS-08.docx"
+ },
+ {
+  "code": "OHS-09",
+  "title": "Hazardous Chemicals – SDS, Labels & Storage",
+  "category": "General OHS & Emergency",
+  "risk": "High",
+  "applies": "All",
+  "read_seconds": 240,
+  "summary": "Reading labels and SDS, the chemical register, safe storage and segregation, decanting, fuels, LPG and batteries, and first aid basics.",
+  "held": true,
+  "file": "drafts/OHS-09.docx"
+ },
+ {
+  "code": "OHS-11",
+  "title": "Manual Handling",
+  "category": "General OHS & Emergency",
+  "risk": "Medium",
+  "applies": "All",
+  "read_seconds": 240,
+  "summary": "Spotting hazardous manual handling on the course and in the shed – aids first, team lifts, technique last, and report aches early.",
+  "held": false,
+  "file": "OHS-11.docx"
+ },
+ {
+  "code": "OHS-13",
+  "title": "Hazard, Incident & Near-Miss Reporting",
+  "category": "General OHS & Emergency",
+  "risk": "Medium",
+  "applies": "All",
+  "read_seconds": 210,
+  "summary": "What to report, how to report it (#ohs plus the form), what happens next, and which serious incidents must go to WorkSafe.",
+  "held": false,
+  "file": "OHS-13.docx"
+ },
+ {
+  "code": "OHS-19",
+  "title": "Working Alone & Check-in",
+  "category": "General OHS & Emergency",
+  "risk": "Medium",
+  "applies": "All",
+  "read_seconds": 180,
+  "summary": "Check in by radio or phone at agreed times, tell someone where you are, jobs never done alone, and what happens if you miss a check-in.",
+  "held": false,
+  "file": "OHS-19.docx"
+ },
+ {
+  "code": "OHS-27",
+  "title": "Snakes, Bees & Wildlife",
+  "category": "General OHS & Emergency",
+  "risk": "Medium",
+  "applies": "All",
+  "read_seconds": 210,
+  "summary": "Avoiding snakes, bees, wasps, spiders, swooping birds and other wildlife on course, and first aid for bites and stings.",
+  "held": false,
+  "file": "OHS-27.docx"
+ },
+ {
+  "code": "OHS-28",
+  "title": "Vehicles, Carts & Traffic on Site",
+  "category": "General OHS & Emergency",
+  "risk": "Medium",
+  "applies": "All",
+  "read_seconds": 240,
+  "summary": "Rules for Workmans, Gators, carts, mowers, tractors and cars on site – training, speed, passengers, loads, reversing, parking and roads.",
+  "held": false,
+  "file": "OHS-28.docx"
+ },
+ {
+  "code": "OHS-31",
+  "title": "Fit for Work – Fatigue, Drugs & Alcohol",
+  "category": "General OHS & Emergency",
+  "risk": "Medium",
+  "applies": "All",
+  "read_seconds": 240,
+  "summary": "Zero alcohol at work, what fit for work means, medication and cannabis, fatigue, what happens if you're not fit, and confidential help.",
+  "held": false,
+  "file": "OHS-31.docx"
+ },
+ {
+  "code": "OHS-35",
+  "title": "Privacy, Confidentiality & Social Media",
+  "category": "General OHS & Emergency",
+  "risk": "Low",
+  "applies": "All",
+  "read_seconds": 300,
+  "summary": "Protecting members', visitors', juniors' and staff personal information and Club business, plus rules for photos, CCTV and social media.",
+  "held": false,
+  "file": "OHS-35.docx"
+ }
+]

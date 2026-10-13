@@ -167,10 +167,10 @@ const SEED_QUESTIONS = [
     'A one-off disagreement about which mowing pattern to use',
     'B', 'Bullying is repeated, unreasonable behaviour that creates a risk to health and safety. Fair feedback, fair rostering and one-off disagreements are not bullying.'],
   ['OHS-32', 2, 'Someone posts a crude sexual meme in the crew group chat. Nobody complains. Is that OK?',
-    'Yes - nobody complained',
-    'Yes - it was not aimed at anyone in particular',
-    'No - it can be sexual harassment or create a hostile workplace, even if it is not aimed at anyone and nobody complains',
-    'It is only a problem if it is posted during work hours',
+    'Yes - nobody complained about it',
+    'Yes - it was not aimed at anyone',
+    'No - it can still be sexual harassment',
+    'Only if it is posted in work hours',
     'C', 'Work group chats are part of the workplace, day or night. People often stay quiet because they feel they cannot object.'],
   ['OHS-32', 3, 'Does sexual harassment have to happen more than once before it counts?',
     'Yes - it has to be a pattern',
@@ -179,34 +179,34 @@ const SEED_QUESTIONS = [
     'Only if it is physical',
     'B', 'Unlike bullying, one incident is enough. It does not have to be physical, and the person does not have to have said stop.'],
   ['OHS-32', 4, 'While you are raking a bunker, a golfer swears at you and hits a ball towards you. What should you do?',
-    'Shout back so they know they cannot treat you like that',
-    'Ignore it - dealing with golfers is part of the job',
-    'Get to safety, radio or phone your supervisor, note the time, hole and a description, and report it',
-    'Wait and confront them on the next tee',
+    'Shout back so they know it is not OK',
+    'Ignore it - golfers are part of the job',
+    'Get safe, radio your supervisor, report it',
+    'Confront them when they reach the tee',
     'C', 'Abuse and aggression from golfers or members is never part of the job. Get safe, do not escalate, and report it so the Club can follow up.'],
   ['OHS-32', 5, 'After Tom reports a leading hand, the crew stops including him at smoko and he gets every 5am bunker job. What is this?',
     'Reasonable management action',
-    'Normal crew dynamics',
-    'Victimisation - which is against the law',
-    'Mediation',
+    'Normal crew dynamics and banter',
+    'Victimisation, which is unlawful',
+    'A fair result of complaining',
     'C', 'Treating someone badly because they made a complaint is victimisation. It is unlawful and treated as serious misconduct.'],
   ['OHS-32', 6, 'Which of these is reasonable management action, and NOT bullying?',
-    'A supervisor privately raises repeated missed pre-start checks, explains the standard and agrees a plan in writing',
-    'A supervisor calls someone "useless" over the radio',
-    'A supervisor cuts someone\'s overtime because they complained',
-    'A supervisor keeps changing someone\'s tasks so they fail',
+    'Raising missed pre-starts privately and agreeing a plan',
+    'Calling someone "useless" over the radio to the crew',
+    'Cutting someone\'s overtime because they complained',
+    'Changing someone\'s tasks again and again so they fail',
     'A', 'Feedback and performance management are fine when they are done fairly and respectfully - in private, specific, and with support.'],
   ['OHS-32', 7, 'You see a co-worker cornering an apprentice in the shed and commenting on her body. She looks uncomfortable. What is a good response?',
     'Stay out of it - it is not your business',
-    'Interrupt safely (e.g. "Can you give me a hand with the trailer?"), check she is OK afterwards, and report it or help her report it',
-    'Film it and post it in the group chat',
-    'Wait and see if it happens again',
+    'Interrupt safely, check she is OK, report it',
+    'Film it and share it in the crew group chat',
+    'Wait and see whether it happens again',
     'B', 'Bystanders can stop harassment. Use the 5 Ds - direct, distract, delegate, delay, document - and only act if it is safe.'],
   ['OHS-32', 8, 'Who can you report bullying or harassment to?',
-    'Only your direct supervisor',
-    'Only the police',
-    'Your supervisor, any manager you trust or senior management - or straight to an outside agency like WorkSafe or a human rights commission',
-    'Nobody, unless you have a witness',
+    'Only your direct supervisor, nobody else',
+    'Only the police, never anyone at work',
+    'Any manager you trust, or an outside agency',
+    'Nobody unless you have a witness or proof',
     'C', 'You can use any of these. You do not need proof or witnesses, and if the problem is your supervisor, go around them.'],
   ['OHS-32', 9, 'A new apprentice is sent to the shop for "a long weight", filmed, and the video is shared in the crew chat. The jokes go on for weeks. What is this?',
     'A harmless tradition',
@@ -215,21 +215,21 @@ const SEED_QUESTIONS = [
     'OK, as long as nobody films it',
     'C', 'Initiations and pranks on new starters are banned. Repeated humiliation of a junior worker is bullying, and laughing along does not mean they are OK with it.'],
   ['OHS-32', 10, 'At the end-of-season function at the pub, after hours, a staff member keeps putting his arm around a colleague and commenting on her body after she moves away. Does this policy apply?',
-    'No - it is after hours',
-    'No - it is not at the Club',
-    'Yes - work functions are covered, and this is sexual harassment',
-    'Only if a manager saw it',
+    'No - it happened after work hours',
+    'No - it was not at the Club itself',
+    'Yes - work functions are covered',
+    'Only if a manager saw it happen',
     'C', 'Anything connected to work is covered, including functions, travel and group chats. Unwelcome touching and comments about someone\'s body are sexual harassment, and touching can be a crime.'],
   ['OHS-32', 11, 'After a greenkeeper tells her supervisor she is pregnant, he takes her off spraying and overtime "for her own good" without talking to her. What is the issue?',
-    'Nothing - he is being considerate',
-    'It may be pregnancy discrimination - he should talk with her, assess the real risks (like chemical exposure) and agree any changes together',
-    'It is reasonable management action, so there is no issue',
-    'It is only an issue if she complains',
+    'Nothing - he is just being considerate',
+    'It may be discrimination - he should ask her',
+    'It is reasonable management action',
+    'It only matters if she complains',
     'B', 'Decisions based on assumptions about pregnancy can be discrimination. Real safety risks are assessed and managed with the worker, not decided for her.'],
   ['OHS-32', 12, 'A complaint is investigated but cannot be proven. What does that mean?',
-    'The complaint was false and the person who made it should be disciplined',
-    'Not proven is not the same as false - only complaints made knowing they are untrue, or otherwise in bad faith, are misconduct',
-    'The person complained about can now take action against the person who complained',
+    'It was false, so the complainant is disciplined',
+    'Not proven is not the same as a false complaint',
+    'The accused can now take action against them',
     'The person who complained cannot report again',
     'B', 'Genuine complaints are protected even if they cannot be proven. Payback against the person who complained would be victimisation.']
 ];
@@ -244,6 +244,7 @@ const README_LINES = [
   'Applies to: All = every active staff member. Otherwise it matches the Groups on the Staff tab: Crew, Spray, Plant, Chainsaw, Workshop. Use commas for more than one.',
   "Knowledge checks: add questions on the Questions tab (one row per question: the document Code, No., the question, up to four options, the Answer letter and a short 'Why'). Staff must answer every question correctly - wrong ones come back round with the explanation - before they can sign. The Register's 'Knowledge check' column shows how many they got right first time.",
   'Retire a document: set Status to Retired. It drops off the staff page and nobody is chased for it.',
+  "Guests: put 'Guest' in someone's Groups (e.g. a manager reviewing a module). They only get documents whose Applies to includes 'Guest', and they are never tagged in Slack.",
   'New staff: add a row on the Staff tab with their Slack ID, Groups, Active = TRUE and a Start date. Their first due dates count from the start date.',
   'Signing in: no PIN. Staff pick their name once and their phone remembers them. Each Slack reminder carries their own link that opens straight to their list. Every signature records the drawn signature, time, read time and device.',
   'Reminders: 7am on the days in Settings. Staff are tagged in Slack from 14 days before a sign-off falls due, weekly while it is outstanding, and straight away when it goes overdue.',
@@ -1073,6 +1074,7 @@ function remind_(opt) {
   const all = computeAll_(ctx);
   const byStaff = {};
   all.items.forEach(i => {
+    if (isGuest_(i.staff)) return;   // guests are never tagged in the crew channel
     const act = i.status === 'Overdue' || i.status === 'Due soon' || (i.status === 'To sign' && i.daysLeft <= lead);
     if (act) (byStaff[String(i.staff.Name).trim()] = byStaff[String(i.staff.Name).trim()] || []).push(i);
   });
@@ -1514,10 +1516,13 @@ function readSeconds_(d, s) { return num_(d['Read time (sec)'], num_(s['READ_SEC
 function groups_(v) { return String(v || '').split(/[,;]/).map(x => x.trim().toLowerCase()).filter(Boolean); }
 function applies_(d, st) {
   const a = groups_(d['Applies to']);
-  if (!a.length || a.indexOf('all') >= 0) return true;
   const g = groups_(st.Groups);
+  // Guests (e.g. a manager reviewing a module) only get documents that name 'Guest' in Applies to.
+  if (g.indexOf('guest') >= 0) return a.indexOf('guest') >= 0;
+  if (!a.length || a.indexOf('all') >= 0) return true;
   return a.some(x => g.indexOf(x) >= 0);
 }
+function isGuest_(st) { return groups_(st.Groups).indexOf('guest') >= 0; }
 function byCategoryThenCode_(a, b) {
   const ca = CATEGORIES.indexOf(String(a.Category || a.category || 'Other').trim());
   const cb = CATEGORIES.indexOf(String(b.Category || b.category || 'Other').trim());

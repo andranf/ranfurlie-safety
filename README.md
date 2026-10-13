@@ -35,3 +35,12 @@ Weekend spare key register: https://andranf.github.io/ranfurlie-safety/keys.html
 ## Updating the backend
 
 Copy `backend/Code.gs` into the sheet's Apps Script editor, save, then **Deploy > Manage deployments > Edit > New version** so the web app URL stays the same.
+
+## Source documents
+
+`library/` holds the source .docx for each training module written here (`documents.json` has their settings, `questions.json` their knowledge checks). `library/drafts/` are modules that need site details (assembly points, kit locations, wardens etc.) filled in before they go into the Drive Library. The live copy of every document is the one in Drive.
+
+## Guests
+
+Put `Guest` in a person's Groups on the Staff tab to give them access for review only: they get just the documents whose *Applies to* includes `Guest`, and they're never tagged in Slack.
+
