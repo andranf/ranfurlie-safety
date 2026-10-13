@@ -1886,7 +1886,8 @@ function addMachines_(mc, names, today) {
     add.push(row);
   });
   if (!add.length) return;
-  const at = mc.t.sh.getLastRow() + 1;
+  // first row after the last named machine (the Pre-start checkboxes run further down the sheet)
+  const at = mc.t.rows.filter(r => String(r.Machine || '').trim()).reduce((m, r) => Math.max(m, r._row), 1) + 1;
   mc.t.sh.getRange(at, 1, add.length, mc.t.head.length).setValues(add.map(r => mc.t.head.map(h => (h in r ? r[h] : ''))));
   add.forEach((r, i) => { r._row = at + i; });
 }
