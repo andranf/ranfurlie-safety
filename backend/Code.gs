@@ -105,7 +105,11 @@ const SEED_SETTINGS = [
   ['PRESTART_SKIP_TASKS', 'Workshop', 'TurfDog tasks where a booked machine needs no pre-start, e.g. servicing it in the workshop (comma list)'],
   ['PRESTART_MATCH', 'type', 'type = a pre-start on another machine of the same Type (Machines tab) counts. exact = it must be the booked machine'],
   ['PRESTART_SWP', 'TRUE', 'Once a day, tag people booked on a machine whose SWP they still have to sign (or is overdue)'],
-  ['PRESTART_SUMMARY_AFTER', '13:30', 'The first run after this time sends Andrew the day\'s pre-start summary (once a day)']
+  ['PRESTART_SUMMARY_AFTER', '13:30', 'The first run after this time sends Andrew the day\'s pre-start summary (once a day)'],
+  ['FOCUS_QUEUE', 'OHS-04, OHS-06, SWP-02, SWP-07, OHS-01, SWP-01, OHS-31, OHS-28, OHS-11, OHS-13, OHS-05, OHS-19, OHS-27, OHS-32, SWP-03, SWP-04, SWP-05, SWP-06, SWP-08, OHS-34, OHS-35', 'Documents pushed in #ohs one at a time, in this order: everyone it applies to is tagged each weekday until they have all signed, then the next one goes up. Documents everyone has already signed are skipped'],
+  ['FOCUS_SKIP', '', 'Staff left out of the #ohs push for now, e.g. on leave (comma list of names)'],
+  ['FOCUS_CC_FROM', 3, 'From this day of chasing the same document, Neil and Ben are tagged too (FOCUS_CC)'],
+  ['FOCUS_CC', 'U06FJ0J1RH8 U06NBNSR9LG', 'Slack IDs tagged on the #ohs push from day FOCUS_CC_FROM (Neil, Ben)']
 ];
 
 // TurfDog machines (equipment list, 13 Oct 2026) -> the SWP that covers them. Machine = the name exactly as TurfDog shows it.
@@ -448,7 +452,10 @@ const README_LINES = [
   "Machines tab: Machine = the name exactly as TurfDog shows it. Type = machines that share a pre-start rule (a pre-start on Workman MDX 4 counts for someone booked on Workman MDX 2 - set PRESTART_MATCH to exact to stop that). Pre-start unticked = never chased (probes, sand, paperwork). New machines from TurfDog are added automatically - fill in their SWP.",
   "Names: TurfDog names are matched to the Staff tab (Josh = Joshua, Nick = Nicholas, Michael Kruse = Michael K). If someone isn't matched, put their TurfDog name in the Staff tab's 'TurfDog name' column.",
   'Andrew gets a DM straight away when a pre-start reports a fault, and a summary of the day after 1:30pm (PRESTART_SUMMARY_AFTER): who never did one, pre-starts on a different machine to the board, checklists that don\'t match the machine, and booked machines with no SWP linked.',
-  'Tasks where a booked machine needs no pre-start (e.g. Workshop, where the machine is being serviced): PRESTART_SKIP_TASKS. Manual runs: setupPrestart, previewPrestart.'
+  'Tasks where a booked machine needs no pre-start (e.g. Workshop, where the machine is being serviced): PRESTART_SKIP_TASKS. Manual runs: setupPrestart, previewPrestart.',
+  '',
+  'ONE DOCUMENT AT A TIME IN #OHS',
+  "A weekday Claude task (9:47am) pushes the documents in FOCUS_QUEUE one at a time in Slack #ohs: one post with the link and everyone who still has to sign it tagged, then each weekday the people still outstanding are tagged again in that post's thread (Neil and Ben too from day FOCUS_CC_FROM). When everyone it applies to has signed, the thread gets a thank you and the next document goes up. Documents everyone has already signed are skipped. Leave someone out for now (e.g. on leave) with FOCUS_SKIP. Manual run: previewFocus."
 ];
 
 /* ------------------------------------------------------- manual runs */
@@ -627,6 +634,8 @@ function doGet(e) {
     if (p.action === 'prestartPlan') return json_(prestartPlan_(p));
     if (p.action === 'prestartPosted') return json_(prestartPosted_(p));
     if (p.action === 'prestartFlag') return json_(prestartFlag_(p));
+    if (p.action === 'focusPlan') return json_(focusPlan_(p));
+    if (p.action === 'focusPosted') return json_(focusPosted_(p));
     return json_({ ok: false, error: 'Unknown action' });
   } catch (err) {
     return json_({ ok: false, error: msg_(err) });
@@ -2213,6 +2222,145 @@ function prestartFlag_(p) {
   st.flags.push(name);
   props.setProperty('ps:' + today, JSON.stringify(st));
   return { ok: true, first: true };
+}
+
+/* ------------------------------------------- one document at a time in #ohs */
+// A weekday Claude task asks for the plan (GET focusPlan), posts it in Slack #ohs and reports back (GET focusPosted).
+// The current document is posted once with everyone who still has to sign it tagged, then each weekday the people
+// still outstanding are tagged again in its thread. When everyone it applies to has signed, the thread gets a thank
+// you and the next document in FOCUS_QUEUE goes up. Uses PRESTART_KEY. Manual run: previewFocus.
+
+function previewFocus() {
+  console.log(JSON.stringify(focusPlanBuild_(settings_(), true), null, 2));
+}
+
+function focusState_(props) {
+  let st = {};
+  try { st = JSON.parse(props.getProperty('focus') || '{}'); } catch (e) { st = {}; }
+  return Object.assign({ code: '', started: '', thread: '', last: '', days: 0, done: [], finished: '' }, st);
+}
+
+function focusLink_(s, code) {
+  const base = String(s.SITE_URL || '').trim();
+  return base + (base.indexOf('?') >= 0 ? '&' : '?') + 'doc=' + encodeURIComponent(code);
+}
+
+// Active staff (not guests, not FOCUS_SKIP) who have to sign this document and haven't signed its current version.
+function focusOutstanding_(ctx, s, doc) {
+  const skip = String(s.FOCUS_SKIP || '').split(/[,;]/).map(norm_).filter(Boolean);
+  const need = [], all = [];
+  ctx.staff.filter(isActive_).forEach(st => {
+    if (isGuest_(st) || !applies_(doc, st) || skip.indexOf(norm_(st.Name)) >= 0) return;
+    all.push(st);
+    const i = itemStatus_(ctx, st, doc);
+    if (i.status === 'To sign' || i.status === 'Overdue') need.push(st);
+  });
+  need.sort((a, b) => String(a.Name).localeCompare(String(b.Name)));
+  return { need, all };
+}
+
+function focusTag_(st) {
+  const id = String(st['Slack ID'] || '').trim();
+  return /^[UW][A-Z0-9]{6,}$/.test(id) ? '<@' + id + '>' : '**' + String(st.Name).trim() + '**';
+}
+
+function focusPlanBuild_(s, preview) {
+  const ctx = context_();
+  const props = PropertiesService.getScriptProperties();
+  const st = focusState_(props);
+  const today = ctx.today;
+  const live = {};
+  ctx.docs.filter(isLive_).forEach(d => { live[String(d.Code).trim().toUpperCase()] = d; });
+  const queue = String(s.FOCUS_QUEUE || '').toUpperCase().split(/[\s,;]+/).filter(c => /^[A-Z]{3}-\d+$/.test(c));
+  const name = d => String(d.Code).trim() + ' ' + String(d.Title).trim();
+  let quizzes = {};
+  try { quizzes = quizzes_(); } catch (e) { quizzes = {}; }
+  const posts = [];
+  let dm = '';
+
+  if (st.last === today && !preview) return { today, code: st.code, posts, dm, note: 'Already posted today' };
+
+  let cur = st.code && live[st.code] ? live[st.code] : null;
+  if (cur) {
+    const o = focusOutstanding_(ctx, s, cur);
+    if (o.need.length) {
+      const day = (st.days || 1) + 1;
+      const cc = String(s.FOCUS_CC || '').split(/[\s,;]+/).filter(x => /^[UW][A-Z0-9]{6,}$/.test(x));
+      const t = [':bell: **Still to sign: ' + name(cur) + '** (' + (o.all.length - o.need.length) + ' of ' + o.all.length + ' done)',
+        o.need.map(focusTag_).join(' '),
+        ':point_right: ' + focusLink_(s, st.code)];
+      if (day >= num_(s.FOCUS_CC_FROM, 3) && cc.length) t.push('cc ' + cc.map(x => '<@' + x + '>').join(' '));
+      posts.push({ kind: 'reminder', code: st.code, thread: st.thread, broadcast: true, text: t.join('\n') });
+      return { today, code: st.code, posts, dm, outstanding: o.need.map(x => String(x.Name).trim()) };
+    }
+    posts.push({ kind: 'done', code: st.code, thread: st.thread, broadcast: false, text: '' });
+  }
+
+  // Next document in the queue that someone still has to sign
+  const done = st.done.concat(cur ? [st.code] : []);
+  let next = null, nextOut = null;
+  for (let i = 0; i < queue.length && !next; i++) {
+    const d = live[queue[i]];
+    if (!d || queue[i] === st.code) continue;
+    const o = focusOutstanding_(ctx, s, d);
+    if (o.need.length) { next = d; nextOut = o; }
+  }
+  if (posts.length) posts[0].text = ':white_check_mark: **Everyone has signed ' + name(cur) + '.** Thanks all.' + (next ? ' Next one is up.' : '');
+  if (next) {
+    const code = String(next.Code).trim();
+    const q = (quizzes[code.toUpperCase()] || []).length;
+    const t = [':clipboard: **Safe work procedure to sign: ' + name(next) + '**',
+      'Read it on your phone, ' + (q ? 'answer the ' + q + '-question check ' : '') + 'and sign. First time? Pick your name from the list. Your name comes off here once you\'ve signed.',
+      ':point_right: ' + focusLink_(s, code),
+      nextOut.need.map(focusTag_).join(' ')];
+    posts.push({ kind: 'header', code, thread: '', broadcast: false, text: t.join('\n') });
+  } else if (!st.finished) {
+    dm = 'Everyone has signed every document in the #ohs queue (FOCUS_QUEUE on the Settings tab). Add more codes there to keep it going.';
+  }
+  return { today, code: next ? String(next.Code).trim() : '', posts, dm, outstanding: nextOut ? nextOut.need.map(x => String(x.Name).trim()) : [], done };
+}
+
+function focusPlan_(p) {
+  const s = settings_();
+  prestartAuth_(s, p.key);
+  const plan = focusPlanBuild_(s, false);
+  PropertiesService.getScriptProperties().setProperty('focus:plan', JSON.stringify(plan));
+  return Object.assign({ ok: true }, plan);
+}
+
+// kind = header | reminder | done | dm, ts = the Slack message ts (header)
+function focusPosted_(p) {
+  const s = settings_();
+  prestartAuth_(s, p.key);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const st = focusState_(props);
+    const today = dayKey_(new Date());
+    const kind = String(p.kind || '').trim();
+    const code = String(p.code || '').trim().toUpperCase();
+    if (kind === 'header') {
+      if (!code) throw new Error('Missing code');
+      if (st.code === code && st.started === today) return { ok: true, already: true };
+      Object.assign(st, { code, started: today, thread: String(p.ts || '').trim(), last: today, days: 1 });
+    } else if (kind === 'reminder') {
+      if (st.last !== today) { st.last = today; st.days = (st.days || 1) + 1; }
+    } else if (kind === 'done') {
+      if (st.code && st.done.indexOf(st.code) < 0) st.done.push(st.code);
+      st.last = today;
+      if (!code || code === st.code) { st.code = ''; st.thread = ''; }
+    } else if (kind === 'dm') {
+      st.finished = today;
+      st.last = today;
+    } else {
+      throw new Error('Unknown kind');
+    }
+    props.setProperty('focus', JSON.stringify(st));
+    return { ok: true, state: st };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* ------------------------------------------------------------- helpers */

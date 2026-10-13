@@ -64,7 +64,9 @@
       var m = /[?&]u=([0-9a-f]{6,20})/i.exec(location.search);
       if (m) {
         return signIn({ action: 'me', u: m[1].toLowerCase() }).then(function () {
-          try { history.replaceState({}, '', location.pathname); } catch (e) {}
+          // drop the personal link from the address bar, keep a ?doc= so the document still opens
+          var dm = /[?&]doc=([A-Za-z]{2,4}-\d{1,3})/.exec(location.search);
+          try { history.replaceState({}, '', location.pathname + (dm ? '?doc=' + dm[1] : '')); } catch (e) {}
         }).catch(function (x) {
           showSignin();
           $('signinErr').textContent = x.message;
@@ -75,7 +77,10 @@
         return signIn({ action: 'me', name: last }).catch(function () { local.del('rs_name'); showSignin(); });
       }
       showSignin();
-    }).then(openFromUrl).catch(function (e) {
+    }).then(function () {
+      // a ?doc= link (e.g. from Slack) opens once we know who you are; first-timers pick their name first
+      if (me) openFromUrl();
+    }).catch(function (e) {
       $('foot').textContent = '';
       notice('Could not load the documents (' + e.message + '). Check your signal and refresh.');
     });
