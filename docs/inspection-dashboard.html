@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1F4D3A">
+  <meta name="robots" content="noindex">
+  <title>Inspection Dashboard · Ranfurlie Safety</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231F4D3A'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11.5' stroke='%23fff' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="inspect.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap dash-wrap top-inner">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <div>
+          <div class="brand-name">Ranfurlie Safety</div>
+          <div class="brand-sub">Monthly inspection dashboard</div>
+        </div>
+      </div>
+      <a class="nav-link" href="inspection.html">Start an inspection</a>
+    </div>
+  </header>
+
+  <main class="wrap dash-wrap" id="main" style="padding-top:18px;padding-bottom:48px">
+    <section id="notice" class="notice" hidden></section>
+
+    <div class="dash-top">
+      <div>
+        <h1 id="dTitle">Monthly H&amp;S inspections</h1>
+        <div class="sub" id="dSub">Loading…</div>
+      </div>
+      <div class="ctrls">
+        <div class="seg-f" id="siteTabs" role="group" aria-label="Area"></div>
+        <select id="period" aria-label="Period">
+          <option value="6">Last 6 months</option>
+          <option value="12" selected>Last 12 months</option>
+          <option value="24">Last 24 months</option>
+        </select>
+        <button type="button" class="btn ghost" id="refresh">Refresh</button>
+      </div>
+    </div>
+
+    <div id="content" hidden>
+      <div class="kpis" id="kpis"></div>
+
+      <div class="grid2">
+        <div class="panel">
+          <div class="panel-head"><div><h2>Score trend</h2><p class="ph-sub">Yes as a % of Yes + No, each inspection. N/A is left out.</p></div></div>
+          <div class="chart" id="trend"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><h2>Where to improve: by section</h2><p class="ph-sub">Pass rate across the period, lowest first.</p></div></div>
+          <div class="hbars" id="secBars"></div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="panel">
+          <div class="panel-head"><div><h2>Repeat failures</h2><p class="ph-sub">Items that keep coming up as defects. Each square is one inspection, oldest to newest.</p></div></div>
+          <div id="repeats"></div>
+          <div class="legend"><span><i style="background:#DDF1E6;border:1px solid #B9DEC9"></i>Passed</span><span><i style="background:#B8382B"></i>Defect</span><span><i style="background:#E7EAEE;border:1px solid #CCD3DB"></i>N/A</span></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><h2>Expiries &amp; service dates</h2><p class="ph-sub">From the latest inspection. Overdue and next 30 days first.</p></div></div>
+          <div class="tbl-wrap"><table class="tbl" id="expiries"></table></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div><h2>Defect register</h2><p class="ph-sub">Every defect found, until it's closed out with a name, note and signature.</p></div>
+          <div class="ctrls">
+            <div class="seg-f" id="defFilter" role="group" aria-label="Show">
+              <button type="button" aria-pressed="true" data-f="open">Open</button>
+              <button type="button" aria-pressed="false" data-f="closed">Closed</button>
+              <button type="button" aria-pressed="false" data-f="all">All</button>
+            </div>
+            <button type="button" class="btn ghost tiny" id="csvDef">Export CSV</button>
+          </div>
+        </div>
+        <div class="tbl-wrap"><table class="tbl" id="defects"></table></div>
+      </div>
+
+      <div class="grid2" style="margin-top:14px">
+        <div class="panel">
+          <div class="panel-head">
+            <div><h2>Inspection history</h2><p class="ph-sub">Tap a row for the full record, timestamps and sign-off.</p></div>
+            <button type="button" class="btn ghost tiny" id="csvInsp">Export CSV</button>
+          </div>
+          <div class="tbl-wrap"><table class="tbl" id="history"></table></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><h2>N/A register</h2><p class="ph-sub">Lines marked N/A in the latest inspection and the reason given. Check they're genuine.</p></div></div>
+          <div class="tbl-wrap"><table class="tbl" id="nas"></table></div>
+        </div>
+      </div>
+      <p class="foot muted" id="foot"></p>
+    </div>
+  </main>
+
+  <div id="modal" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="inspect-checklists.js"></script>
+  <script src="inspect-common.js"></script>
+  <script src="inspection-dashboard.js"></script>
+</body>
+</html>
