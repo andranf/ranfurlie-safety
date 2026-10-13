@@ -1790,6 +1790,7 @@ function prestart_(b) {
     touchMachines_(mc, evals, checks, today);
 
     const plan = prestartPlanBuild_(s, today, hhmm, evals, checks, mc, who);
+    plan.run = String(b.run || '').slice(0, 20);
     const props = PropertiesService.getScriptProperties();
     props.setProperty('ps:plan', JSON.stringify(plan));
     prunePrestartState_(props, today);
@@ -2037,7 +2038,8 @@ function prestartPlanBuild_(s, today, hhmm, evals, checks, mc, who) {
   });
   const swpPeople = Object.keys(swp).map(k => swp[k]).sort((a, b) => a.name.localeCompare(b.name));
   const swpText = x => x.code + ' ' + x.title + (x.status === 'Overdue' ? ' (overdue)' : x.outdated ? ' (updated, sign by ' + nice_(x.due) + ')' : ' (sign by ' + nice_(x.due) + ')');
-  const line = o => '• ' + o.who + ' ' + o.machines.join(' and ');
+  const list = a => (a.length > 1 ? a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1] : a.join(''));
+  const line = o => '• ' + o.who + ' ' + list(o.machines);
   const escAt = Math.max(1, num_(s.PRESTART_ESCALATE_AFTER, 2));
   const cc = String(s.PRESTART_CC || '').split(/[\s,;]+/).filter(x => /^[UW][A-Z0-9]{6,}$/.test(x));
 
@@ -2140,10 +2142,11 @@ function prestartPlan_(p) {
   const plan = JSON.parse(PropertiesService.getScriptProperties().getProperty('ps:plan') || '{}');
   const today = dayKey_(new Date());
   if (plan.date !== today) return { ok: false, error: 'No TurfDog data received today yet' };
+  if (p.run && String(p.run) !== plan.run) return { ok: false, pending: true, error: 'This run\'s TurfDog data has not arrived yet' };
   const age = (Date.now() - new Date(plan.generated).getTime()) / 60000;
   if (!(age <= 30)) return { ok: false, error: 'TurfDog data is ' + Math.round(age) + ' minutes old - read TurfDog again' };
   return {
-    ok: true, date: plan.date, time: plan.time, summary: plan.summaryLine,
+    ok: true, run: plan.run, date: plan.date, time: plan.time, summary: plan.summaryLine,
     post: plan.post && !plan.postDone ? { kind: plan.post.kind, text: plan.post.text, thread: plan.post.thread } : null,
     dm: plan.dm && !plan.dmDone ? plan.dm : ''
   };

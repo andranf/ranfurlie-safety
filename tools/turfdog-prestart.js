@@ -1,9 +1,10 @@
-// Ranfurlie Safety - TurfDog pre-start reader (v1.0, 13 Oct 2026).
+// Ranfurlie Safety - TurfDog pre-start reader (v1.1, 13 Oct 2026).
 //
 // The hourly pre-start task loads this into a logged-in TurfDog tab (turfdog.net/dashboard):
 //   const src = await (await fetch('https://raw.githubusercontent.com/andranf/ranfurlie-safety/main/tools/turfdog-prestart.js', { cache: 'no-store' })).text();
 //   new Function('KEY', 'API', src)('<PRESTART_KEY>', '<web app /exec URL>');
-// then calls  await __TD.next()  with a 2 second pause between calls until the answer starts with "done" or "error".
+// then calls  await __TD.next()  with a short pause between calls until the answer starts with "done" or "error",
+// and fetches the result from the web app: GET ?action=prestartPlan&key=<key>&run=<__TD.run>.
 //
 // Each call does one short step. The tab is usually in the background, where page timers are throttled, so nothing
 // here waits on a page timer: the task's own pause between calls gives TurfDog time to render.
@@ -11,7 +12,7 @@
 // pre-starts, then the "Issues only" filter) -> POST to the Ranfurlie Safety web app (action 'prestart').
 // Read only: it never changes anything in TurfDog (the Issues only filter is switched back off).
 
-const TD_VERSION = 'reader 1.0';
+const TD_VERSION = 'reader 1.1';
 const TD_KEY = KEY;
 const TD_API = API;
 
@@ -31,7 +32,17 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const TODAY = dayKey(new Date());
 
-const S = { stage: 'board', board: {}, last: null, same: 0, from: null, cLast: null, cSame: 0, cFrom: null, checks: null, issues: null, steps: 0, warn: '', result: '' };
+const S = { stage: 'board', run: Math.random().toString(36).slice(2, 10), board: {}, last: null, same: 0, from: null, since: 0, cLast: null, cSame: 0, cFrom: null, checks: null, issues: null, steps: 0, warn: '', result: '' };
+
+// The toolbar's "19 tasks" is the showing shift's task count; it updates before the cards do.
+const NOT_TASKS = ['calendar events', 'notes', 'course map', 'available staff'];
+function taskCount() {
+  const m = txt(document.querySelector('main')).match(/\b(\d+)\s+tasks?\b/);
+  return m ? Number(m[1]) : null;
+}
+function cardCount() {
+  return all('main h3').filter(h => NOT_TASKS.indexOf(txt(h).toLowerCase()) < 0).length;
+}
 
 // "Tue, Oct 13" on the whiteboard date button -> true when it is today
 function boardDate() {
@@ -76,8 +87,11 @@ function boardStep() {
   const active = btns.findIndex(b => b && /\bbg-primary\b/.test(b.className)) + 1;
   const rows = chips();
   const sig = JSON.stringify(rows);
-  if (sig !== S.last) { S.last = sig; S.same = 0; return 'reading the board'; }
+  if (sig !== S.last) { S.last = sig; S.same = 0; if (!S.since) S.since = Date.now(); return 'reading the board'; }
   S.same++;
+  // every task card for this shift must be drawn (allow 90 s in case TurfDog's layout changes)
+  const want = taskCount();
+  if (active && !S.board[active] && want !== null && cardCount() !== want && Date.now() - S.since < 90000) return 'reading shift ' + active;
   let msg = '';
   if (active && !S.board[active]) {
     // after a switch the people must change; if they don't (two shifts the same, or both empty) wait 45 s before trusting it
@@ -86,6 +100,7 @@ function boardStep() {
     if (!fresh || (noMachines && S.same < 3)) return 'reading shift ' + active;
     S.board[active] = rows;
     S.from = null;
+    S.since = 0;
     msg = 'shift ' + active + ': ' + rows.length + ' on the board, ' + rows.filter(r => r.machines.length).length + ' with machines';
   }
   const todo = [1, 2, 3].filter(n => !S.board[n]);
@@ -95,6 +110,7 @@ function boardStep() {
   if (!b) { S.board[todo[0]] = []; return 'no shift ' + todo[0] + ' button'; }
   S.from = peopleOf(rows);
   S.clickAt = Date.now();
+  S.since = 0;
   S.last = null;
   b.click();
   return 'switching to shift ' + todo[0];
@@ -157,20 +173,19 @@ function readChecks(issues) {
   return todays.length + ' pre-starts today';
 }
 
-async function send() {
+// Sends everything to the web app and returns straight away: in a background tab the reply can take longer than one
+// call is allowed to wait, so the task asks the web app for this run's result itself (prestartPlan with run=<id>).
+function send() {
   const board = [];
   [1, 2, 3].forEach(n => (S.board[n] || []).forEach(r => board.push({ shift: n, task: r.task, staff: r.staff, machines: r.machines })));
-  const body = { action: 'prestart', key: TD_KEY, today: TODAY, board, shiftsRead: Object.keys(S.board).map(Number), checks: S.checks || [], issues: S.issues || [], reader: TD_VERSION };
-  let j;
-  try {
-    const r = await fetch(TD_API, { method: 'POST', body: JSON.stringify(body) });
-    j = await r.json();
-  } catch (e) {
-    return 'error: could not reach the safety web app (' + String(e && e.message || e).slice(0, 80) + ')';
-  }
-  if (!j || !j.ok) return 'error: safety web app said ' + String(j && j.error || 'no reply').slice(0, 150);
-  S.stage = 'done';
-  S.result = j.summary + (j.post ? ' | to post: ' + j.post : ' | nothing to post') + (j.dm ? ' | DM for Andrew' : '') + (S.warn ? ' | ' + S.warn : '');
+  const body = { action: 'prestart', key: TD_KEY, run: S.run, today: TODAY, board, shiftsRead: Object.keys(S.board).map(Number), checks: S.checks || [], issues: S.issues || [], reader: TD_VERSION };
+  S.stage = 'sent';
+  S.reply = null;
+  fetch(TD_API, { method: 'POST', body: JSON.stringify(body) })
+    .then(r => r.json()).then(j => { S.reply = j; })
+    .catch(e => { S.reply = { ok: false, error: String(e && e.message || e).slice(0, 120) }; });
+  const n = board.filter(r => r.machines.length).length;
+  S.result = 'sent run ' + S.run + ': ' + board.length + ' on the board (' + n + ' with machines), ' + (S.checks || []).length + ' pre-starts today, ' + (S.issues || []).length + ' with issues' + (S.warn ? ' | ' + S.warn : '');
   return 'done: ' + S.result;
 }
 
@@ -183,7 +198,8 @@ async function next() {
     if (S.stage === 'checksNav') return checksNav();
     if (S.stage === 'checks') return readChecks(false);
     if (S.stage === 'issues') return readChecks(true);
-    if (S.stage === 'send') return await send();
+    if (S.stage === 'send') return send();
+    if (S.stage === 'sent' && S.reply && !S.reply.ok) return 'error: safety web app said ' + String(S.reply.error || 'no reply').slice(0, 150);
     return 'done: ' + S.result;
   } catch (e) {
     return 'error: ' + S.stage + ': ' + String(e && e.message || e).slice(0, 150);
@@ -192,7 +208,9 @@ async function next() {
 
 window.__TD = {
   version: TD_VERSION,
+  run: S.run,
   next,
+  reply: () => JSON.stringify(S.reply).slice(0, 400),
   // short peek at what has been read so far (for checking a run by hand)
   peek: () => JSON.stringify({ stage: S.stage, board: S.board, checks: S.checks, issues: S.issues }).slice(0, 900)
 };
