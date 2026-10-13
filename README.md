@@ -48,6 +48,10 @@ and posts both to the web app (`action: prestart`, with the `PRESTART_KEY` from 
 
 Settings: `PRESTART_SHIFT_FROM` (when each shift's machines are chased), `PRESTART_ESCALATE_AFTER`, `PRESTART_CC`, `PRESTART_SKIP_TASKS` (e.g. Workshop), `PRESTART_MATCH` (`type`: a pre-start on another machine of the same Type counts; `exact`: only the booked machine), `PRESTART_SWP`, `PRESTART_SUMMARY_AFTER`. TurfDog names are matched to the Staff tab (Josh = Joshua, Michael Kruse = Michael K); use the Staff tab's *TurfDog name* column for anyone who doesn't match.
 
+## One document at a time in #ohs
+
+A weekday Claude scheduled task (9:47am) pushes the documents in Settings `FOCUS_QUEUE` one at a time in Slack #ohs. The first post has the link (`?doc=CODE` opens it straight away) and tags everyone who still has to sign it; each weekday after that the people still outstanding are tagged again in its thread (Neil and Ben too from day `FOCUS_CC_FROM`). When everyone it applies to has signed, the thread gets a thank you and the next document goes up; documents everyone has already signed are skipped. Leave someone out for now (e.g. on leave) with `FOCUS_SKIP`. The task calls `focusPlan` / `focusPosted` with the `PRESTART_KEY`.
+
 ## Updating the backend
 
 Copy `backend/Code.gs` into the sheet's Apps Script editor, save, then **Deploy > Manage deployments > Edit > New version** so the web app URL stays the same.
