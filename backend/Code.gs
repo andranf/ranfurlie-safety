@@ -283,7 +283,7 @@ const SEED_STAFF = [
   ['Katherine Duong', 'U08M3KGRHJ6', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
   ['Samuel Cope', 'U09LN1Q8QH2', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
   ['Tremayne Gallagher', 'U09V6AVPUDP', 'Greenkeeper', 'Amstel', 'All, Crew', '', true, '', ''],
-  ['Michael K', 'U07QSB7HVM1', 'Contractor', 'Ranfurlie', 'All, Workshop', '', false, '', 'Set Active to TRUE if he works on site']
+  ['Michael Kruse', 'U07QSB7HVM1', 'Grounds Person', 'Ranfurlie', 'All, Crew', '', true, '', '']
 ];
 
 // code, title, risk, applies to, summary
