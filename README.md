@@ -50,7 +50,7 @@ Settings: `PRESTART_SHIFT_FROM` (when each shift's machines are chased), `PRESTA
 
 ## One document at a time in #ohs
 
-A weekday Claude scheduled task (9:47am) pushes the documents in Settings `FOCUS_QUEUE` one at a time in Slack #ohs. The first post has the link (`?doc=CODE` opens it straight away) and tags everyone who still has to sign it; each weekday after that the people still outstanding are tagged again in its thread (Neil and Ben too from day `FOCUS_CC_FROM`). When everyone it applies to has signed, the thread gets a thank you and the next document goes up; documents everyone has already signed are skipped. Leave someone out for now (e.g. on leave) with `FOCUS_SKIP`. The task calls `focusPlan` / `focusPosted` with the `PRESTART_KEY`.
+A Claude scheduled task (weekdays 9:47am and 12:47pm) pushes the documents in Settings `FOCUS_QUEUE` one at a time in Slack #ohs. The first post has the link (`?doc=CODE` opens it straight away) and tags everyone who still has to sign it; every run after that tags the people still outstanding again in a new post in the channel (not a thread reply), with Neil and Ben too from day `FOCUS_CC_FROM`. A missed morning run is caught up after lunch. Nothing moves on until everyone it applies to has signed: then a thank you goes up and the next document; documents everyone has already signed are skipped. Leave someone out for now (e.g. on leave) with `FOCUS_SKIP`. The task calls `focusPlan` / `focusPosted` with the `PRESTART_KEY`.
 
 ## Updating the backend
 
@@ -59,6 +59,14 @@ Copy `backend/Code.gs` into the sheet's Apps Script editor, save, then **Deploy 
 ## Source documents
 
 `library/` holds the source .docx for each training module written here (`documents.json` has their settings, `questions.json` their knowledge checks). `library/drafts/` are modules that need site details (assembly points, kit locations, wardens etc.) filled in before they go into the Drive Library. The live copy of every document is the one in Drive.
+
+## Staff who leave
+
+Untick *Active* on their Staff row (and note the date in Notes). They drop off the staff page, the Matrix, the 7am reminders and the #ohs push; their signatures stay in the Register.
+
+## Plant (Track Loader, Excavator)
+
+SWP-02 Track Loader and SWP-07 Excavator apply to the `Plant` group. Everyone on the maintenance team has Plant in their Groups except Nicholas Debrincat; add or remove it per person on the Staff tab.
 
 ## Guests
 

@@ -271,19 +271,19 @@ const SEED_STAFF = [
   ['Andrew Anderson', 'U06BCCG4HT9', 'Course Superintendent', 'Ranfurlie / Amstel', 'All, Crew, Spray, Plant, Chainsaw', '', true, '', ''],
   ['Ben Hartley', 'U06NBNSR9LG', 'Course Operations', 'Ranfurlie / Amstel', 'All, Crew, Spray, Plant, Chainsaw, Workshop', '', true, '', ''],
   ['Neil Harper', 'U06FJ0J1RH8', 'Crew Lead', 'Ranfurlie', 'All, Crew, Spray, Plant, Chainsaw', '', true, '', ''],
-  ['Kyle Craig', 'U06FWK6ND5X', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
-  ['Nathan Drew', 'U06FJ0J5DS6', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
-  ['Nathan Ferguson', 'U06H9J0LBEC', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
+  ['Kyle Craig', 'U06FWK6ND5X', 'Greenkeeper', 'Ranfurlie', 'All, Crew, Plant', '', true, '', ''],
+  ['Nathan Drew', 'U06FJ0J5DS6', 'Greenkeeper', 'Ranfurlie', 'All, Crew, Plant', '', true, '', ''],
+  ['Nathan Ferguson', 'U06H9J0LBEC', 'Greenkeeper', 'Ranfurlie', 'All, Crew, Plant', '', true, '', ''],
   ['Nicholas Debrincat', 'U07QSB7MDK5', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
-  ['Brodie Macdonald', 'U0839HLQA8G', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
-  ['Flynn Sinclair', 'U08C1SVFSFR', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
-  ['James King', 'U08D57N6JSC', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
-  ['Joshua Cope', 'U08ENB28AQZ', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
-  ['Mitch Mahoney', 'U08K55E3QJU', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
-  ['Katherine Duong', 'U08M3KGRHJ6', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
-  ['Samuel Cope', 'U09LN1Q8QH2', 'Greenkeeper', 'Ranfurlie', 'All, Crew', '', true, '', ''],
-  ['Tremayne Gallagher', 'U09V6AVPUDP', 'Greenkeeper', 'Amstel', 'All, Crew', '', true, '', ''],
-  ['Michael Kruse', 'U07QSB7HVM1', 'Grounds Person', 'Ranfurlie', 'All, Crew', '', true, '', '']
+  ['Brodie Macdonald', 'U0839HLQA8G', 'Greenkeeper', 'Ranfurlie', 'All, Crew, Plant', '', true, '', ''],
+  ['Flynn Sinclair', 'U08C1SVFSFR', 'Greenkeeper', 'Ranfurlie', 'All, Crew, Plant', '', true, '', ''],
+  ['James King', 'U08D57N6JSC', 'Greenkeeper', 'Ranfurlie', 'All, Crew, Plant', '', true, '', ''],
+  ['Joshua Cope', 'U08ENB28AQZ', 'Greenkeeper', 'Ranfurlie', 'All, Crew, Plant', '', true, '', ''],
+  ['Mitch Mahoney', 'U08K55E3QJU', 'Greenkeeper', 'Ranfurlie', 'All, Crew, Plant', '', true, '', ''],
+  ['Katherine Duong', 'U08M3KGRHJ6', 'Greenkeeper', 'Ranfurlie', 'All, Crew, Plant', '', true, '', ''],
+  ['Samuel Cope', 'U09LN1Q8QH2', 'Greenkeeper', 'Ranfurlie', 'All, Crew, Plant', '', true, '', ''],
+  ['Tremayne Gallagher', 'U09V6AVPUDP', 'Greenkeeper', 'Amstel', 'All, Crew, Plant', '', true, '', ''],
+  ['Michael Kruse', 'U07QSB7HVM1', 'Grounds Person', 'Ranfurlie', 'All, Crew, Plant', '', true, '', '']
 ];
 
 // code, title, risk, applies to, summary
@@ -2225,10 +2225,11 @@ function prestartFlag_(p) {
 }
 
 /* ------------------------------------------- one document at a time in #ohs */
-// A weekday Claude task asks for the plan (GET focusPlan), posts it in Slack #ohs and reports back (GET focusPosted).
-// The current document is posted once with everyone who still has to sign it tagged, then each weekday the people
-// still outstanding are tagged again in its thread. When everyone it applies to has signed, the thread gets a thank
-// you and the next document in FOCUS_QUEUE goes up. Uses PRESTART_KEY. Manual run: previewFocus.
+// A Claude task asks for the plan (GET focusPlan) twice each weekday (morning and after lunch), posts it in Slack
+// #ohs and reports back (GET focusPosted). The current document is posted once with everyone who still has to sign
+// it tagged, then each run the people still outstanding are tagged again in a new post in the channel (not a thread
+// reply, so it can't be missed). A run that was missed is caught up by the next one. When everyone it applies to has
+// signed, a thank you goes up and then the next document in FOCUS_QUEUE. Uses PRESTART_KEY. Manual run: previewFocus.
 
 function previewFocus() {
   console.log(JSON.stringify(focusPlanBuild_(settings_(), true), null, 2));
@@ -2237,7 +2238,17 @@ function previewFocus() {
 function focusState_(props) {
   let st = {};
   try { st = JSON.parse(props.getProperty('focus') || '{}'); } catch (e) { st = {}; }
-  return Object.assign({ code: '', started: '', thread: '', last: '', days: 0, done: [], finished: '' }, st);
+  return Object.assign({ code: '', started: '', thread: '', last: '', slot: '', days: 0, done: [], finished: '' }, st);
+}
+
+// 'YYYY-MM-DD am' before midday Melbourne time, 'YYYY-MM-DD pm' after: one #ohs post per half day.
+function focusSlot_(d) {
+  d = d || new Date();
+  return dayKey_(d) + (Number(Utilities.formatDate(d, TZ, 'HH')) < 12 ? ' am' : ' pm');
+}
+function focusSlotPosted_(st, slot) {
+  if (st.slot) return st.slot === slot;
+  return st.last === slot.slice(0, 10) && / am$/.test(slot);  // state from before half-day slots: counts as the morning post
 }
 
 function focusLink_(s, code) {
@@ -2278,22 +2289,24 @@ function focusPlanBuild_(s, preview) {
   const posts = [];
   let dm = '';
 
-  if (st.last === today && !preview) return { today, code: st.code, posts, dm, note: 'Already posted today' };
+  const slot = focusSlot_();
+  if (focusSlotPosted_(st, slot) && !preview) return { today, slot, code: st.code, posts, dm, note: 'Already posted this ' + (/ am$/.test(slot) ? 'morning' : 'afternoon') };
 
   let cur = st.code && live[st.code] ? live[st.code] : null;
   if (cur) {
     const o = focusOutstanding_(ctx, s, cur);
     if (o.need.length) {
-      const day = (st.days || 1) + 1;
+      const day = st.last === today ? (st.days || 1) : (st.days || 1) + 1;
       const cc = String(s.FOCUS_CC || '').split(/[\s,;]+/).filter(x => /^[UW][A-Z0-9]{6,}$/.test(x));
       const t = [':bell: **Still to sign: ' + name(cur) + '** (' + (o.all.length - o.need.length) + ' of ' + o.all.length + ' done)',
         o.need.map(focusTag_).join(' '),
+        'Please read and sign it today. We don\'t move on to the next one until everyone has signed.',
         ':point_right: ' + focusLink_(s, st.code)];
       if (day >= num_(s.FOCUS_CC_FROM, 3) && cc.length) t.push('cc ' + cc.map(x => '<@' + x + '>').join(' '));
-      posts.push({ kind: 'reminder', code: st.code, thread: st.thread, broadcast: true, text: t.join('\n') });
-      return { today, code: st.code, posts, dm, outstanding: o.need.map(x => String(x.Name).trim()) };
+      posts.push({ kind: 'reminder', code: st.code, thread: '', broadcast: false, text: t.join('\n') });
+      return { today, slot, code: st.code, posts, dm, outstanding: o.need.map(x => String(x.Name).trim()) };
     }
-    posts.push({ kind: 'done', code: st.code, thread: st.thread, broadcast: false, text: '' });
+    posts.push({ kind: 'done', code: st.code, thread: '', broadcast: false, text: '' });
   }
 
   // Next document in the queue that someone still has to sign
@@ -2317,7 +2330,7 @@ function focusPlanBuild_(s, preview) {
   } else if (!st.finished) {
     dm = 'Everyone has signed every document in the #ohs queue (FOCUS_QUEUE on the Settings tab). Add more codes there to keep it going.';
   }
-  return { today, code: next ? String(next.Code).trim() : '', posts, dm, outstanding: nextOut ? nextOut.need.map(x => String(x.Name).trim()) : [], done };
+  return { today, slot, code: next ? String(next.Code).trim() : '', posts, dm, outstanding: nextOut ? nextOut.need.map(x => String(x.Name).trim()) : [], done };
 }
 
 function focusPlan_(p) {
@@ -2338,7 +2351,8 @@ function focusPosted_(p) {
   try {
     const props = PropertiesService.getScriptProperties();
     const st = focusState_(props);
-    const today = dayKey_(new Date());
+    const now = new Date();
+    const today = dayKey_(now);
     const kind = String(p.kind || '').trim();
     const code = String(p.code || '').trim().toUpperCase();
     if (kind === 'header') {
@@ -2357,6 +2371,7 @@ function focusPosted_(p) {
     } else {
       throw new Error('Unknown kind');
     }
+    st.slot = focusSlot_(now);
     props.setProperty('focus', JSON.stringify(st));
     return { ok: true, state: st };
   } finally {
