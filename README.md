@@ -52,6 +52,15 @@ Settings: `PRESTART_SHIFT_FROM` (when each shift's machines are chased), `PRESTA
 
 A Claude scheduled task (weekdays 9:47am and 12:47pm) pushes the documents in Settings `FOCUS_QUEUE` one at a time in Slack #ohs. The first post has the link (`?doc=CODE` opens it straight away) and tags everyone who still has to sign it; every run after that tags the people still outstanding again in a new post in the channel (not a thread reply), with Neil and Ben too from day `FOCUS_CC_FROM`. A missed morning run is caught up after lunch. Nothing moves on until everyone it applies to has signed: then a thank you goes up and the next document; documents everyone has already signed are skipped. Leave someone out for now (e.g. on leave) with `FOCUS_SKIP`. The task calls `focusPlan` / `focusPosted` with the `PRESTART_KEY`.
 
+## New documents: checked before they go live
+
+Katherine (and anyone with access) adds SWPs by dropping the file into the matching Library sub-folder. With Settings `NEW_DOC_REVIEW` TRUE (the default), a new document waits on the Documents tab as **To review**, and a new version of a live document waits as a pending upload while the current version stays live. A weekday Claude scheduled task (7:40am) reads each waiting file against the house SWP format (header, issue/review dates, approved by, description, make/model, hazards, PPE, operator requirements, warnings, pre-operation, operation, emergency, post-operation, storage and maintenance, competent persons), then either:
+
+- **passes it:** sets the title, risk, who it applies to and a summary, writes the knowledge check (Questions tab), links it to its machines on the Machines tab, adds it to the end of `FOCUS_QUEUE` and makes it live; a new version goes live as the next version, so everyone re-signs it; or
+- **holds it** with a note saying what needs fixing, and DMs Andrew.
+
+Files dropped outside the Library (e.g. the Ranfurlie Safety folder itself) are moved into the right category folder first. API: `reviewList` (GET), `reviewDone` and `reviewImport` (POST), all with the `PRESTART_KEY`.
+
 ## Updating the backend
 
 Copy `backend/Code.gs` into the sheet's Apps Script editor, save, then **Deploy > Manage deployments > Edit > New version** so the web app URL stays the same.

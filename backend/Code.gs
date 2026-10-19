@@ -107,6 +107,7 @@ const SEED_SETTINGS = [
   ['PRESTART_SWP', 'TRUE', 'Once a day, tag people booked on a machine whose SWP they still have to sign (or is overdue)'],
   ['PRESTART_SUMMARY_AFTER', '13:30', 'The first run after this time sends Andrew the day\'s pre-start summary (once a day)'],
   ['FOCUS_QUEUE', 'OHS-04, OHS-06, SWP-02, SWP-07, OHS-01, SWP-01, OHS-31, OHS-28, OHS-11, OHS-13, OHS-05, OHS-19, OHS-27, OHS-32, SWP-03, SWP-04, SWP-05, SWP-06, SWP-08, OHS-34, OHS-35', 'Documents pushed in #ohs one at a time, in this order: everyone it applies to is tagged each weekday until they have all signed, then the next one goes up. Documents everyone has already signed are skipped'],
+  ['NEW_DOC_REVIEW', 'TRUE', 'New documents (and new versions) dropped in the Drive Library wait as "To review" until the daily Claude check passes them; FALSE = they go live straight away'],
   ['FOCUS_SKIP', '', 'Staff left out of the #ohs push for now, e.g. on leave (comma list of names)'],
   ['FOCUS_CC_FROM', 3, 'From this day of chasing the same document, Neil and Ben are tagged too (FOCUS_CC)'],
   ['FOCUS_CC', 'U06FJ0J1RH8 U06NBNSR9LG', 'Slack IDs tagged on the #ohs push from day FOCUS_CC_FROM (Neil, Ben)']
@@ -636,6 +637,7 @@ function doGet(e) {
     if (p.action === 'prestartFlag') return json_(prestartFlag_(p));
     if (p.action === 'focusPlan') return json_(focusPlan_(p));
     if (p.action === 'focusPosted') return json_(focusPosted_(p));
+    if (p.action === 'reviewList') return json_(reviewList_(p));
     return json_({ ok: false, error: 'Unknown action' });
   } catch (err) {
     return json_({ ok: false, error: msg_(err) });
@@ -656,6 +658,8 @@ function doPost(e) {
     if (b.action === 'inspClose') return json_(inspClose_(b));
     if (b.action === 'inspReview') return json_(inspReview_(b));
     if (b.action === 'prestart') return json_(prestart_(b));
+    if (b.action === 'reviewDone') return json_(reviewDone_(b));
+    if (b.action === 'reviewImport') return json_(reviewImport_(b));
     return json_({ ok: false, error: 'Unknown action' });
   } catch (err) {
     return json_({ ok: false, error: msg_(err) });
@@ -888,6 +892,10 @@ function syncLibrary_() {
   };
   walk(root, '');
 
+  const review = reviewOn_(s);
+  const props = PropertiesService.getScriptProperties();
+  const pend = reviewPending_(props);
+  let pendChanged = false;
   const t = read_(TAB.DOCS);
   const docs = t.rows.filter(r => String(r.Code || '').trim());
   const byCode = {}, byFile = {};
@@ -938,8 +946,8 @@ function syncLibrary_() {
       const row = {
         'Code': code, 'Title': title, 'Category': category, 'Risk': guessRisk_(title, category),
         'Applies to': guessApplies_(title, category), 'Renew (months)': '', 'Read time (sec)': '', 'Summary': '',
-        'Status': 'Live', 'Version': 1, 'Updated': fresh.getLastUpdated(), 'File ID': id, 'File name': fresh.getName(),
-        'Link': fresh.getUrl(), 'Added': today, 'Notes': 'Added from Drive ' + today + ' - check Risk and Applies to'
+        'Status': review ? 'To review' : 'Live', 'Version': 1, 'Updated': fresh.getLastUpdated(), 'File ID': id, 'File name': fresh.getName(),
+        'Link': fresh.getUrl(), 'Added': today, 'Notes': review ? 'Added from Drive ' + today + ' - waiting for review' : 'Added from Drive ' + today + ' - check Risk and Applies to'
       };
       t.sh.appendRow(t.head.map(h => (h in row ? row[h] : '')));
       row._row = t.sh.getLastRow();
@@ -952,6 +960,20 @@ function syncLibrary_() {
     seen[code] = true;
     const upd = {};
     const linkedId = String(doc['File ID'] || '').trim();
+    const status = String(doc.Status).trim();
+    // A new version of a document staff can already see waits for review; the current file stays live meanwhile.
+    if (review && linkedId && linkedId !== id && status === 'Live') {
+      if (!pend[code] || pend[code].id !== id) {
+        if (!m) { try { f.setName(code + ' ' + name); } catch (e) {} }
+        share_(f);
+        pend[code] = { id, name: DriveApp.getFileById(id).getName(), at: today };
+        pendChanged = true;
+        writeRow_(t, doc._row, { 'Notes': 'New version uploaded ' + today + ' - waiting for review' });
+        changed = true;
+      }
+      return;
+    }
+    if (pend[code] && pend[code].id !== id && linkedId === id) { /* the pending file was removed: keep the live one */ delete pend[code]; pendChanged = true; }
     if (linkedId !== id) {
       if (!m) { try { f.setName(code + ' ' + name); } catch (e) {} }
       share_(f);
@@ -959,7 +981,7 @@ function syncLibrary_() {
       upd['File ID'] = id;
       upd['File name'] = fresh.getName();
       upd['Link'] = fresh.getUrl();
-      if (linkedId) {
+      if (linkedId && status !== 'To review') {
         upd['Version'] = num_(doc.Version, 1) + 1;
         upd['Updated'] = new Date();
       } else {
@@ -967,7 +989,8 @@ function syncLibrary_() {
         upd['Updated'] = fresh.getLastUpdated();
         upd['Added'] = today;
       }
-      if (String(doc.Status).trim() !== 'Retired') upd['Status'] = 'Live';
+      if (status !== 'Retired') upd['Status'] = review && status !== 'Live' ? 'To review' : 'Live';
+      if (review && status !== 'Live' && status !== 'Retired') upd['Notes'] = 'File added ' + today + ' - waiting for review';
       byFile[id] = doc;
     } else {
       const prev = doc.Updated instanceof Date ? doc.Updated.getTime() : 0;
@@ -988,12 +1011,16 @@ function syncLibrary_() {
   });
 
   docs.forEach(d => {
-    if (String(d.Status).trim() === 'Live' && !seen[String(d.Code).trim()]) {
+    const c = String(d.Code).trim();
+    const st = String(d.Status).trim();
+    if ((st === 'Live' || st === 'To review') && !seen[c]) {
       writeRow_(t, d._row, { 'Status': 'Not uploaded' });
       d.Status = 'Not uploaded';
       changed = true;
     }
+    if (pend[c] && !seen[c]) { delete pend[c]; pendChanged = true; }
   });
+  if (pendChanged) props.setProperty('review:pending', JSON.stringify(pend));
   if (changed) CacheService.getScriptCache().remove('library');
   return changed;
 }
@@ -2222,6 +2249,167 @@ function prestartFlag_(p) {
   st.flags.push(name);
   props.setProperty('ps:' + today, JSON.stringify(st));
   return { ok: true, first: true };
+}
+
+/* ------------------------------------------------- new documents: daily review */
+// Anything dropped in the Drive Library (by Katherine or anyone) waits as "To review" (new documents) or as a pending
+// new version (documents already live) until a weekday Claude task has read it. The task calls reviewList, reads each
+// file, then reviewDone: 'live' puts it on the staff page with its risk, who it applies to, a knowledge check, its
+// machines on the Machines tab and a place at the end of FOCUS_QUEUE; 'hold' leaves it waiting with a note.
+// reviewImport moves a file uploaded outside the Library into the right category folder. Uses PRESTART_KEY.
+
+function reviewOn_(s) { return !('NEW_DOC_REVIEW' in s) || String(s.NEW_DOC_REVIEW).trim() === '' || bool_(s.NEW_DOC_REVIEW); }
+
+function reviewPending_(props) {
+  try { return JSON.parse((props || PropertiesService.getScriptProperties()).getProperty('review:pending') || '{}'); } catch (e) { return {}; }
+}
+
+function reviewFileInfo_(id) {
+  try {
+    const f = DriveApp.getFileById(id);
+    let owner = '';
+    try { owner = f.getOwner() ? f.getOwner().getEmail() : ''; } catch (e) {}
+    return { fileId: id, fileName: f.getName(), link: f.getUrl(), mime: f.getMimeType(), created: dayKey_(f.getDateCreated()), owner };
+  } catch (e) {
+    return { fileId: id, error: 'File not found: ' + msg_(e) };
+  }
+}
+
+function reviewList_(p) {
+  const s = settings_();
+  prestartAuth_(s, p.key);
+  if (!('NEW_DOC_REVIEW' in s)) ensureSettings_();
+  try { syncLibrary_(); } catch (e) { console.error('sync before review failed: ' + e); }
+  const pend = reviewPending_();
+  const docs = read_(TAB.DOCS).rows.filter(r => String(r.Code || '').trim());
+  const pending = [];
+  docs.forEach(d => {
+    const code = String(d.Code).trim();
+    const base = { code, title: String(d.Title || '').trim(), category: String(d.Category || '').trim(), risk: riskOf_(d),
+      applies: String(d['Applies to'] || '').trim(), status: String(d.Status || '').trim(), version: num_(d.Version, 1), notes: String(d.Notes || '').trim() };
+    if (base.status === 'To review' && String(d['File ID'] || '').trim()) pending.push(Object.assign(base, { kind: 'new' }, reviewFileInfo_(String(d['File ID']).trim())));
+    else if (pend[code]) pending.push(Object.assign(base, { kind: 'version', liveFileId: String(d['File ID'] || '').trim(), uploaded: pend[code].at }, reviewFileInfo_(pend[code].id)));
+  });
+  const staffGroups = {};
+  read_(TAB.STAFF).rows.filter(isActive_).forEach(st => groups_(st.Groups).forEach(g => { staffGroups[g] = (staffGroups[g] || 0) + 1; }));
+  let machines = [];
+  try { machines = read_(TAB.MACHINES).rows.map(m => ({ machine: String(m.Machine || '').trim(), type: String(m.Type || '').trim(), model: String(m.Model || '').trim(), swp: String(m.SWP || '').trim() })).filter(m => m.machine); } catch (e) {}
+  const quizzes = quizzes_();
+  return {
+    ok: true, today: dayKey_(new Date()), review: reviewOn_(s), pending,
+    docs: docs.map(d => ({ code: String(d.Code).trim(), title: String(d.Title || '').trim(), category: String(d.Category || '').trim(), status: String(d.Status || '').trim(),
+      risk: riskOf_(d), applies: String(d['Applies to'] || '').trim(), questions: (quizzes[String(d.Code).trim().toUpperCase()] || []).length })),
+    groups: staffGroups, machines, queue: String(s.FOCUS_QUEUE || ''),
+    libraryFolderId: String(s.LIBRARY_FOLDER_ID || ''), categories: CATEGORIES
+  };
+}
+
+// b: { key, code, decision: 'live'|'hold', note, title, risk, applies, summary, readSeconds, questions: [{ q, options: [..4], answer: 'A'..'D' | 0..3, why }], machines: [names], queue }
+function reviewDone_(b) {
+  const s = settings_();
+  prestartAuth_(s, b.key);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    const code = String(b.code || '').trim().toUpperCase();
+    const t = read_(TAB.DOCS);
+    const d = t.rows.find(r => String(r.Code || '').trim().toUpperCase() === code);
+    if (!d) throw new Error('No document ' + code);
+    const props = PropertiesService.getScriptProperties();
+    const pend = reviewPending_(props);
+    const today = dayKey_(new Date());
+    const note = String(b.note || '').trim().slice(0, 600);
+    const decision = String(b.decision || '').trim().toLowerCase();
+    if (decision === 'hold') {
+      writeRow_(t, d._row, { 'Notes': 'Held ' + today + ': ' + (note || 'see Andrew') });
+      return { ok: true, code, held: true };
+    }
+    if (decision !== 'live') throw new Error('decision must be live or hold');
+    const isVersion = !!pend[code];
+    if (!isVersion && String(d.Status || '').trim() !== 'To review') throw new Error(code + ' is not waiting for review');
+    const upd = { 'Status': 'Live', 'Notes': 'Reviewed ' + today + (note ? ': ' + note : '') };
+    if (isVersion) {
+      const f = DriveApp.getFileById(pend[code].id);
+      Object.assign(upd, { 'File ID': f.getId(), 'File name': f.getName(), 'Link': f.getUrl(), 'Version': num_(d.Version, 1) + 1, 'Updated': new Date() });
+      delete pend[code];
+      props.setProperty('review:pending', JSON.stringify(pend));
+    }
+    const title = String(b.title || '').trim();
+    if (title) upd['Title'] = title.slice(0, 120);
+    const risk = String(b.risk || '').trim();
+    if (['High', 'Medium', 'Low'].indexOf(risk) >= 0) upd['Risk'] = risk;
+    const applies = String(b.applies || '').trim();
+    if (applies) upd['Applies to'] = applies;
+    const summary = String(b.summary || '').trim();
+    if (summary) upd['Summary'] = summary.slice(0, 400);
+    if (num_(b.readSeconds, 0) > 0) upd['Read time (sec)'] = Math.round(num_(b.readSeconds, 0));
+    writeRow_(t, d._row, upd);
+
+    // Knowledge check: replaces any questions this document already had
+    let nq = 0;
+    const qs = Array.isArray(b.questions) ? b.questions : [];
+    if (qs.length) {
+      const qt = read_(TAB.QUIZ);
+      qt.rows.filter(r => String(r.Code || '').trim().toUpperCase() === code).map(r => r._row).sort((x, y) => y - x).forEach(r => qt.sh.deleteRow(r));
+      const rows = [];
+      qs.forEach((q, i) => {
+        const opts = (Array.isArray(q.options) ? q.options : []).map(o => String(o || '').trim()).filter(Boolean).slice(0, 4);
+        let ans = q.answer;
+        if (typeof ans === 'number') ans = 'ABCD'.charAt(ans);
+        ans = String(ans || '').trim().toUpperCase().charAt(0);
+        if (!String(q.q || '').trim() || opts.length < 2 || 'ABCD'.indexOf(ans) < 0 || 'ABCD'.indexOf(ans) >= opts.length) return;
+        while (opts.length < 4) opts.push('');
+        rows.push(qt.head.map(h => ({ 'Code': code, 'No.': rows.length + 1, 'Question': String(q.q).trim(), 'Option A': opts[0], 'Option B': opts[1], 'Option C': opts[2], 'Option D': opts[3], 'Answer': ans, 'Why': String(q.why || '').trim() })[h] ?? ''));
+      });
+      if (rows.length) qt.sh.getRange(qt.sh.getLastRow() + 1, 1, rows.length, qt.head.length).setValues(rows);
+      nq = rows.length;
+    }
+
+    // Machines tab: link this SWP to the machines it covers
+    const linked = [];
+    const want = (Array.isArray(b.machines) ? b.machines : []).map(x => norm_(x)).filter(Boolean);
+    if (want.length) {
+      const mt = read_(TAB.MACHINES);
+      mt.rows.forEach(r => {
+        if (want.indexOf(norm_(r.Machine)) < 0) return;
+        const cur = String(r.SWP || '').split(/[,;]/).map(x => x.trim()).filter(Boolean);
+        if (cur.map(x => x.toUpperCase()).indexOf(code) < 0) { cur.push(code); writeRow_(mt, r._row, { 'SWP': cur.join(', ') }); }
+        linked.push(String(r.Machine).trim());
+      });
+    }
+
+    // #ohs push: new documents join the end of the queue
+    let queued = false;
+    if (b.queue !== false) {
+      const q = String(s.FOCUS_QUEUE || '').split(/[\s,;]+/).filter(Boolean);
+      if (q.map(x => x.toUpperCase()).indexOf(code) < 0) { q.push(code); setSetting_('FOCUS_QUEUE', q.join(', ')); queued = true; }
+    }
+    CacheService.getScriptCache().remove('library');
+    props.setProperty('dirty', '1');
+    return { ok: true, code, live: true, version: upd['Version'] || num_(d.Version, 1), questions: nq, machines: linked, queued };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// b: { key, fileId, category } - moves a file uploaded outside the Library into its category folder and syncs it in.
+function reviewImport_(b) {
+  const s = settings_();
+  prestartAuth_(s, b.key);
+  const cat = String(b.category || '').trim();
+  if (CATEGORIES.indexOf(cat) < 0) throw new Error('category must be one of: ' + CATEGORIES.join(', '));
+  const root = DriveApp.getFolderById(s.LIBRARY_FOLDER_ID);
+  let target = null;
+  const subs = root.getFolders();
+  while (subs.hasNext() && !target) { const f = subs.next(); if (catName_(f.getName()) === cat) target = f; }
+  if (!target) throw new Error('No Library folder for ' + cat);
+  const f = DriveApp.getFileById(String(b.fileId || '').trim());
+  f.moveTo(target);
+  syncLibrary_();
+  const d = read_(TAB.DOCS).rows.find(r => String(r['File ID'] || '').trim() === f.getId());
+  const pend = reviewPending_();
+  const code = d ? String(d.Code).trim() : (Object.keys(pend).find(c => pend[c].id === f.getId()) || '');
+  return { ok: true, moved: target.getName(), code };
 }
 
 /* ------------------------------------------- one document at a time in #ohs */
