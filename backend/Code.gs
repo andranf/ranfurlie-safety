@@ -2680,12 +2680,14 @@ function nice_(key) { return key ? Utilities.formatDate(new Date(dnum_(key) * 86
 const INSP_TAB = { MAIN: 'Inspections', DEF: 'Inspection Defects', ANS: 'Inspection Answers' };
 const INSP_HEAD = {
   'Inspections': ['Submitted', 'Receipt', 'Area', 'Area name', 'Inspector', 'Started', 'Finished (device)', 'Minutes', 'Yes', 'No', 'N/A', 'Total', 'Score %',
-    'Checklist version', 'Other hazards', 'Declaration', 'Signature', 'Device', 'Client ID', 'Reviewed by', 'Reviewed at', 'Review comment', 'Review signature'],
+    'Checklist version', 'Other hazards', 'Declaration', 'Signature', 'Device', 'Client ID', 'Reviewed by', 'Reviewed at', 'Review comment', 'Review signature',
+    'Active minutes', 'Added equipment'],
   'Inspection Defects': ['Defect ID', 'Receipt', 'Area', 'Found at', 'Found by', 'Section', 'Ref', 'Key', 'Item', 'Equipment', 'Description', 'Priority',
     'Times seen', 'Last seen', 'Latest note', 'Photos', 'Photo IDs', 'Status', 'Fixed on the spot', 'Fix note', 'Closed by', 'Closed at', 'Close-out note', 'Close-out signature'],
-  'Inspection Answers': ['Submitted', 'Receipt', 'Area', 'Section', 'Key', 'Kind', 'Item', 'Equipment', 'Result', 'Value', 'Last done', 'Comment', 'N/A reason', 'Answered at']
+  'Inspection Answers': ['Submitted', 'Receipt', 'Area', 'Section', 'Key', 'Kind', 'Item', 'Equipment', 'Result', 'Value', 'Last done', 'Comment', 'N/A reason', 'Answered at',
+    'Photos', 'Photo IDs', 'No photo reason']
 };
-const INSP_AREAS = { compound: 'Maintenance compound', clubhouse: 'Clubhouse' };
+const INSP_AREAS = { compound: 'Maintenance compound', clubhouse: 'Clubhouse & driving range' };
 
 // Manual run: create the inspection tabs and settings (also happens automatically on first use).
 function setupInspections() {
@@ -2702,7 +2704,7 @@ function previewInspectionReminder() {
 function inspEnsure_(force) {
   const ss = book_();
   const props = PropertiesService.getScriptProperties();
-  if (!force && props.getProperty('insp_ready') === '4') return;
+  if (!force && props.getProperty('insp_ready') === '5') return;
   if (!('INSP_PAGE_URL' in settings_())) ensureSettings_();
   const widths = {
     'Inspections': [140, 160, 90, 170, 150, 140, 140, 70, 50, 50, 50, 55, 70, 110, 300, 300, 80, 220, 110, 150, 140, 260, 90],
@@ -2738,8 +2740,14 @@ function inspEnsure_(force) {
       INSP_HEAD[name].forEach(h => ensureColumn_(sh, h));
     }
   });
-  if (!String(settings_().INSP_GO_LIVE || '').trim()) setSetting_('INSP_GO_LIVE', dayKey_(new Date()));
-  props.setProperty('insp_ready', '4');
+  const st0 = settings_();
+  if (!String(st0.INSP_GO_LIVE || '').trim()) setSetting_('INSP_GO_LIVE', dayKey_(new Date()));
+  // Each area's first inspection is due a week after that area's checklist goes live.
+  Object.keys(INSP_AREAS).forEach(a => {
+    const k = 'INSP_GO_LIVE_' + a.toUpperCase();
+    if (a !== 'compound' && !String(st0[k] || '').trim()) setSetting_(k, dayKey_(new Date()));
+  });
+  props.setProperty('insp_ready', '5');
 }
 
 function inspSettings_() {
@@ -2811,7 +2819,7 @@ function inspSubmit_(b) {
     let yes = 0, no = 0, na = 0;
     answers.forEach(a => {
       const r = String(a.result || '');
-      if (r === 'text') return;
+      if (r === 'text' || r === 'photo') return;
       if (r === 'yes') yes++;
       else if (r === 'no') { no++; if (String(a.comment || '').trim().length < 3) throw new Error('Every No needs a description: ' + String(a.label || a.key)); }
       else if (r === 'na') { na++; if (String(a.naReason || '').trim().length < 3) throw new Error('Every N/A needs a reason: ' + String(a.label || a.key)); }
@@ -2831,18 +2839,40 @@ function inspSubmit_(b) {
       'Started': started, 'Finished (device)': inspDate_(b.finishedAt), 'Minutes': minutes, 'Yes': yes, 'No': no, 'N/A': na, 'Total': total, 'Score %': score,
       'Checklist version': String(b.version || '').slice(0, 30), 'Other hazards': String(b.other || '').slice(0, 3000),
       'Declaration': String(b.declaration || '').slice(0, 400), 'Signature': '=HYPERLINK("' + sigFile.getUrl() + '","View")',
-      'Device': String(b.ua || '').slice(0, 160), 'Client ID': clientId
+      'Device': String(b.ua || '').slice(0, 160), 'Client ID': clientId,
+      'Active minutes': num_(b.activeMinutes, 0) > 0 ? Math.round(num_(b.activeMinutes, 0)) : '',
+      'Added equipment': (Array.isArray(b.added) ? b.added : []).map(x => String(x).slice(0, 160)).slice(0, 40).join('\n')
     };
     main.sh.appendRow(main.head.map(h => (h in mainRow ? mainRow[h] : '')));
 
+    // Evidence photos on answers (defect photos are saved with the defect below)
+    let folder = null, photoErr = '', nPhotos = 0;
+    const savePhotos = (list, label) => {
+      const urls = [], ids = [];
+      (Array.isArray(list) ? list.slice(0, 3) : []).forEach((p, j) => {
+        if (nPhotos >= 120) return;
+        const m = String(p || '').match(/^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]+)$/);
+        if (!m) return;
+        try {
+          folder = folder || inspPhotoFolder_(ctx.s);
+          const f = folder.createFile(Utilities.newBlob(Utilities.base64Decode(m[2]), 'image/' + m[1], label + ' ' + (j + 1) + (m[1] === 'png' ? '.png' : '.jpg')));
+          share_(f);
+          urls.push(f.getUrl()); ids.push(f.getId()); nPhotos++;
+        } catch (e) { photoErr = String(e); console.warn('photo save failed: ' + e); }
+      });
+      return { urls, ids };
+    };
+
     // Answers - one block write
     const ans = read_(INSP_TAB.ANS);
-    const aRows = answers.map(a => {
+    const aRows = answers.map((a, i) => {
+      const ph = Array.isArray(a.photos) && a.photos.length ? savePhotos(a.photos, receipt + ' ' + String(a.key || i).replace(/[^A-Za-z0-9.-]/g, '_')) : { urls: [], ids: [] };
       const o = {
         'Submitted': now, 'Receipt': receipt, 'Area': area, 'Section': String(a.sec || '').slice(0, 8), 'Key': String(a.key || '').slice(0, 80),
         'Kind': String(a.kind || '').slice(0, 12), 'Item': String(a.label || '').slice(0, 300), 'Equipment': String(a.asset || '').slice(0, 120),
         'Result': String(a.result || ''), 'Value': String(a.value || '').slice(0, 120), 'Last done': String(a.last || '').slice(0, 20),
-        'Comment': String(a.comment || '').slice(0, 1500), 'N/A reason': String(a.naReason || '').slice(0, 500), 'Answered at': inspDate_(a.at)
+        'Comment': String(a.comment || '').slice(0, 1500), 'N/A reason': String(a.naReason || '').slice(0, 500), 'Answered at': inspDate_(a.at),
+        'Photos': ph.urls.join('\n'), 'Photo IDs': ph.ids.join(','), 'No photo reason': String(a.noPhoto || '').slice(0, 300)
       };
       return ans.head.map(h => (h in o ? o[h] : ''));
     });
@@ -2860,21 +2890,12 @@ function inspSubmit_(b) {
     const openBy = {};
     def.rows.forEach(r => { if (String(r.Area) === area && String(r.Status).trim() !== 'Closed' && String(r.Key)) openBy[String(r.Key)] = r; });
     const rank = { High: 3, Medium: 2, Low: 1 };
-    let folder = null, photoErr = '', repeats = 0;
+    let repeats = 0;
     const dRows = [];
     defs.forEach((d, i) => {
       const id = receipt + '-' + ('0' + (i + 1)).slice(-2);
-      const urls = [], ids = [];
-      (Array.isArray(d.photos) ? d.photos.slice(0, 3) : []).forEach((p, j) => {
-        const m = String(p || '').match(/^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]+)$/);
-        if (!m) return;
-        try {
-          folder = folder || inspPhotoFolder_(ctx.s);
-          const f = folder.createFile(Utilities.newBlob(Utilities.base64Decode(m[2]), 'image/' + m[1], id + ' ' + (j + 1) + (m[1] === 'png' ? '.png' : '.jpg')));
-          share_(f);
-          urls.push(f.getUrl()); ids.push(f.getId());
-        } catch (e) { photoErr = String(e); console.warn('photo save failed: ' + e); }
-      });
+      const saved = savePhotos(d.photos, id);
+      const urls = saved.urls, ids = saved.ids;
       const fixed = d.fixed === true;
       const pr = ['High', 'Medium', 'Low'].indexOf(String(d.priority)) >= 0 ? String(d.priority) : 'Medium';
       const prev = openBy[String(d.key || '')];
@@ -2983,7 +3004,8 @@ function inspMainOut_(r) {
     startedAt: inspIso_(r.Started), submittedAt: inspIso_(r.Submitted), durationMin: r.Minutes, yes: r.Yes, no: r.No, na: r['N/A'], total: r.Total,
     score: r['Score %'], version: String(r['Checklist version'] || ''), other: String(r['Other hazards'] || ''),
     reviewedBy: String(r['Reviewed by'] || ''), reviewedAt: inspIso_(r['Reviewed at']), reviewComment: String(r['Review comment'] || ''),
-    declaration: String(r.Declaration || ''), device: String(r.Device || ''), signatureUrl: sig ? sig[1] : ''
+    declaration: String(r.Declaration || ''), device: String(r.Device || ''), signatureUrl: sig ? sig[1] : '',
+    activeMin: r['Active minutes'] === '' || r['Active minutes'] === undefined ? '' : r['Active minutes'], added: String(r['Added equipment'] || '')
   };
 }
 function inspDefOut_(r) {
@@ -2997,11 +3019,12 @@ function inspDefOut_(r) {
     photos: ids.map(id => ({ id, url: 'https://drive.google.com/file/d/' + id + '/view' }))
   };
 }
-const INSP_ANS_COLS = ['id', 'key', 'sec', 'kind', 'label', 'asset', 'result', 'value', 'last', 'comment', 'naReason'];
+const INSP_ANS_COLS = ['id', 'key', 'sec', 'kind', 'label', 'asset', 'result', 'value', 'last', 'comment', 'naReason', 'photos', 'noPhoto'];
 function inspAnsOut_(r) {
   const v = r.Value instanceof Date ? dayKey_(r.Value) : String(r.Value || '');
   const l = r['Last done'] instanceof Date ? dayKey_(r['Last done']) : String(r['Last done'] || '');
-  return [String(r.Receipt), String(r.Key), String(r.Section), String(r.Kind), String(r.Item), String(r.Equipment || ''), String(r.Result), v, l, String(r.Comment || ''), String(r['N/A reason'] || '')];
+  return [String(r.Receipt), String(r.Key), String(r.Section), String(r.Kind), String(r.Item), String(r.Equipment || ''), String(r.Result), v, l, String(r.Comment || ''), String(r['N/A reason'] || ''),
+    String(r['Photo IDs'] || ''), String(r['No photo reason'] || '')];
 }
 
 function inspStatus_() {
@@ -3021,7 +3044,8 @@ function inspStatus_() {
   read_(INSP_TAB.DEF).rows.forEach(r => { const a = String(r.Area); if (sites[a] && String(r.Status).trim() !== 'Closed') sites[a].openDefects++; });
   const goLive = String(cfg.s.INSP_GO_LIVE || '').trim() || dayKey_(new Date());
   Object.keys(sites).forEach(a => {
-    const base = sites[a].last ? dayKey_(new Date(sites[a].last.submittedAt)) : goLive;
+    const live = toKey_(cfg.s['INSP_GO_LIVE_' + a.toUpperCase()]) || goLive;
+    const base = sites[a].last ? dayKey_(new Date(sites[a].last.submittedAt)) : live;
     sites[a].nextDue = sites[a].last ? addDays_(base, cfg.every) : addDays_(base, 7);   // first one: a week after go-live
   });
   const out = { ok: true, sites, everyDays: cfg.every, generated: new Date().toISOString() };
@@ -3083,7 +3107,6 @@ function inspReminders_(opt) {
   const ctx = context_();
   const out = [];
   Object.keys(st).forEach(a => {
-    if (a === 'clubhouse' && !st[a].last) return;   // clubhouse checklist not live yet
     const s = st[a];
     if (!s.nextDue || s.nextDue > today) return;
     const lastSent = props.getProperty('insp_remind_' + a) || '';

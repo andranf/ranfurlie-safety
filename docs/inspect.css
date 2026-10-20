@@ -192,6 +192,39 @@
 .svc .dates { padding-top: 8px; }
 .svc .dates .date { background: transparent; border: 0; padding: 0; }
 
+/* photos, evidence and the extra bits on a line */
+.q-cam { display: block; font-size: 12.5px; font-weight: 600; color: var(--green-2); margin-top: 4px; }
+.q-due { display: inline-block; font-size: 11.5px; font-weight: 700; color: var(--warn); background: var(--warn-bg); border-radius: 999px; padding: 1px 8px; margin-top: 5px; }
+@media (max-width: 520px) { .ans.two { grid-template-columns: 1fr 1fr; } }
+.ph-label { font-size: 13.5px; font-weight: 700; color: var(--no); margin: 0 0 2px; }
+.ph-more.done .ph-label { color: var(--yes); }
+.ph-more.optional .more-in { padding-top: 6px; }
+.ph-more.optional .ph-add { border: 0; background: none; padding: 2px 0; font-size: 13px; color: var(--muted); font-weight: 600; }
+.ph-more.optional .photos { margin-top: 0; }
+.ph-add.need { border-color: var(--no); color: var(--no); background: #FFF8F7; }
+.np-link { font-size: 12.5px; margin-top: 6px; display: inline-block; }
+.np-more .more-in { padding-top: 6px; }
+.tag.nophoto { background: var(--warn-bg); color: var(--warn); }
+.card-photo { border-top: 1px dashed #DDE3DF; margin-top: 8px; padding-top: 10px; }
+.card-photo .ph-label { color: var(--no); }
+.card-photo.done .ph-label { color: var(--yes); }
+.card-photo.attn, .date.attn { animation: shake .45s; }
+.dhint { font-size: 12px; color: var(--muted); margin: -2px 0 6px; line-height: 1.35; }
+.dwarn { font-size: 12.5px; font-weight: 700; color: var(--warn); margin-top: 5px; }
+.dlinks { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
+.dlinks .link-btn { font-size: 12.5px; }
+.svc-note { margin-top: 8px; }
+.svc-note input { width: 100%; font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid #C8D1CC; border-radius: 9px; background: #fff; }
+.add-asset { margin: 0 0 14px; }
+.add-asset > .ph-add { width: 100%; text-align: left; }
+.add-form { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px !important; margin-top: 8px; }
+.add-form label { margin: 10px 0 6px; font-size: 13.5px; }
+.add-form label:first-child { margin-top: 0; }
+.add-form .btn { margin: 12px 0 0; }
+.asset.added { border-style: dashed; }
+.added-tag { display: inline-block !important; font-size: 11px !important; font-weight: 700; color: var(--green-2) !important; background: var(--yes-bg); border-radius: 999px; padding: 1px 7px; margin-left: 6px; }
+.mini-btn.rm:hover { border-color: var(--no); color: var(--no); }
+
 /* ------------------------------------------------------ footer nav */
 .stepnav { position: sticky; bottom: 0; z-index: 4; background: rgba(244,241,232,.95); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-top: 1px solid var(--line); padding: 10px 0; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
 .stepnav .wrap { display: flex; gap: 10px; }
@@ -391,3 +424,14 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 
 .tbl .btn.tiny, .tbl .flag { white-space: nowrap; }
 .tbl td .flag { display: inline-flex; }
+
+/* equipment cards on phones: name on its own line, buttons underneath */
+@media (max-width: 520px) {
+  .asset-head { flex-wrap: wrap; row-gap: 8px; }
+  .asset-head .nm { flex: 1 1 100%; }
+  .asset-head .state { margin-right: auto; }
+}
+/* optional photos: only on standalone lines (cards have their own photo where one is needed) */
+.asset .ph-more.optional { display: none; }
+.ph-more.optional .ph-add { font-size: 12.5px; font-weight: 500; }
+.card-photo { text-align: left; }

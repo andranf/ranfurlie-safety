@@ -1,6 +1,8 @@
-"""Builds the monthly inspection wall poster (A4 PDF) and its QR PNG.
+"""Builds the monthly inspection wall posters (A4 PDF) and their QR PNGs, one per area.
 
-    python3 tools/inspection_poster.py     -> docs/inspection/inspection-poster.pdf, docs/inspection/qr-compound.png
+    python3 tools/inspection_poster.py
+      -> docs/inspection/inspection-poster.pdf (maintenance compound) + qr-compound.png
+      -> docs/inspection/inspection-poster-clubhouse.pdf (clubhouse & driving range) + qr-clubhouse.png
 """
 import os
 import qrcode
@@ -11,7 +13,11 @@ from reportlab.lib.colors import HexColor, white
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
-PAGE = 'https://andranf.github.io/ranfurlie-safety/inspection.html?site=compound'
+BASE = 'https://andranf.github.io/ranfurlie-safety/inspection.html?site='
+SITES = [
+    ('compound', 'Maintenance compound', 'Course Maintenance', 'inspection-poster.pdf', 'Supervisor'),
+    ('clubhouse', 'Clubhouse & driving range', 'Clubhouse & Driving Range', 'inspection-poster-clubhouse.pdf', 'manager on duty'),
+]
 OUT = os.path.join(os.path.dirname(__file__), '..', 'docs', 'inspection')
 GREEN, RED, INK, MUTED, SAND = HexColor('#1F4D3A'), HexColor('#B8382B'), HexColor('#1B1F1D'), HexColor('#5D6763'), HexColor('#F4F1E8')
 
@@ -36,12 +42,12 @@ def wrap(c, text, font, size, width):
     return lines
 
 
-def main():
-    os.makedirs(OUT, exist_ok=True)
-    png = qr_png(PAGE, os.path.join(OUT, 'qr-compound.png'))
+def poster(site, area, footer_area, pdf_name, boss):
+    PAGE = BASE + site
+    png = qr_png(PAGE, os.path.join(OUT, 'qr-' + site + '.png'))
 
     W, H = A4
-    c = canvas.Canvas(os.path.join(OUT, 'inspection-poster.pdf'), pagesize=A4)
+    c = canvas.Canvas(os.path.join(OUT, pdf_name), pagesize=A4)
     c.setTitle('Monthly H&S inspection - wall poster')
     c.setFillColor(SAND)
     c.rect(0, 0, W, H, stroke=0, fill=1)
@@ -52,7 +58,7 @@ def main():
     c.setFont('Helvetica-Bold', 34)
     c.drawString(16 * mm, H - 23 * mm, 'MONTHLY H&S INSPECTION')
     c.setFont('Helvetica', 15)
-    c.drawString(16 * mm, H - 33 * mm, 'Maintenance compound  ·  Scan to start, walk it, sign it off')
+    c.drawString(16 * mm, H - 33 * mm, area + '  ·  Scan to start, walk it, sign it off')
 
     # QR block
     bw = 100 * mm
@@ -72,9 +78,9 @@ def main():
 
     steps = [
         ('1', 'Walk every area and answer every line', 'Yes, No or N/A. Equipment cards (AEDs, first aid kits, extinguishers) have an All OK button. Read expiry and service dates off the tags.'),
-        ('2', 'No = say what’s wrong and take a photo', 'It goes straight into the defect register. Fixed it on the spot? Tick it and say what you did.'),
-        ('3', 'N/A needs a reason', 'Only use it when the item genuinely isn’t there or isn’t due.'),
-        ('!', 'Anything dangerous: make it safe first', 'Tag it OUT OF SERVICE or block it off, then tell your Supervisor. Sign off at the end with your finger.'),
+        ('2', 'No = say what’s wrong and take a photo', 'It goes straight into the defect register. Lines with a camera need a photo even when the answer is Yes. Fixed it on the spot? Tick it and say what you did.'),
+        ('3', 'N/A needs a reason', 'Only use it when the item genuinely isn’t there or isn’t due. Can’t find an expiry or service date? Tap “Can’t find the date”. Found equipment that isn’t listed? Add it.'),
+        ('!', 'Anything dangerous: make it safe first', 'Tag it OUT OF SERVICE or block it off, then tell your ' + boss + '. Sign off at the end with your finger.'),
     ]
     y = by - 12 * mm
     for n, head, body in steps:
@@ -96,9 +102,15 @@ def main():
 
     c.setFillColor(MUTED)
     c.setFont('Helvetica', 9)
-    c.drawCentredString(W / 2, 9 * mm, 'Ranfurlie Golf Club  ·  Course Maintenance  ·  ' + PAGE.replace('https://', ''))
+    c.drawCentredString(W / 2, 9 * mm, 'Ranfurlie Golf Club  ·  ' + footer_area + '  ·  ' + PAGE.replace('https://', ''))
     c.showPage()
     c.save()
+
+
+def main():
+    os.makedirs(OUT, exist_ok=True)
+    for args in SITES:
+        poster(*args)
     print('written to', os.path.abspath(OUT))
 
 

@@ -398,14 +398,15 @@
     t.appendChild(el('thead', {}, [el('tr', {}, ['Date', 'Inspector', 'Score', 'Defects', 'N/A', 'Time', 'Reviewed'].map(function (h, j) { return el('th', { class: j >= 2 && j <= 5 ? 'num' : '', text: h }); }))]));
     var tb = el('tbody');
     data.insp.slice().reverse().forEach(function (x, j) {
-      var quick = Number(x.durationMin) > 0 && Number(x.durationMin) < 15;
+      var mins = x.activeMin !== '' && x.activeMin !== undefined && x.activeMin !== null ? Number(x.activeMin) : Number(x.durationMin);
+      var quick = mins > 0 && mins < 15;
       tb.appendChild(el('tr', { class: 'click', style: '--i:' + Math.min(j, 20), tabindex: '0', onclick: function () { openRecord(x.id); }, onkeydown: function (e) { if (e.key === 'Enter') openRecord(x.id); } }, [
         el('td', { class: 'nowrap', text: I.dayMon(x.submittedAt) + ' ' + String(new Date(x.submittedAt).getFullYear()).slice(2) }),
         el('td', { text: x.inspector }),
         el('td', { class: 'num', text: hasScore(x) ? x.score + '%' : '—' }),
         el('td', { class: 'num', text: String(x.no) }),
         el('td', { class: 'num', text: String(x.na) }),
-        el('td', { class: 'num' }, [x.durationMin + ' min', quick ? el('div', {}, [el('span', { class: 'flag soon', title: 'Under 15 minutes for the whole walk-around', text: '⚠ quick' })]) : null]),
+        el('td', { class: 'num' }, [mins + ' min', quick ? el('div', {}, [el('span', { class: 'flag soon', title: 'Under 15 minutes for the whole walk-around', text: '⚠ quick' })]) : null]),
         el('td', {}, [x.reviewedBy ? el('span', { class: 'flag ok', text: '✓ ' + x.reviewedBy.split(' ')[0] }) : el('span', { class: 'flag na', text: 'To review' })])
       ]));
     });
@@ -525,12 +526,17 @@
         meta('Area', r.siteName || (data.cl.name || r.site)), meta('Receipt', r.id),
         meta('Inspector', r.inspector), meta('Score', hasScore(r) ? r.score + '%' : '—'),
         meta('Started', I.when(r.startedAt)), meta('Submitted', I.when(r.submittedAt)),
-        meta('Time taken', r.durationMin + ' min'), meta('Yes / No / N/A', r.yes + ' / ' + r.no + ' / ' + r.na),
+        meta('Time taken', r.activeMin !== '' && r.activeMin !== undefined ? r.activeMin + ' min walking (' + r.durationMin + ' min start to finish)' : r.durationMin + ' min'), meta('Yes / No / N/A', r.yes + ' / ' + r.no + ' / ' + r.na),
         meta('Checklist version', r.version), meta('Device', String(r.device || '').replace(/\).*/, ')').slice(0, 60))
       ]));
       box.appendChild(el('div', { class: 'rec-sec' }, [el('h3', { text: 'Declaration & signature' }), el('div', { style: 'font-size:14px', text: r.declaration || '' }),
         r.signatureUrl ? el('a', { href: r.signatureUrl, target: '_blank', rel: 'noopener', class: 'link-btn', text: 'View signature (register only)' }) : null]));
-      if (r.other) box.appendChild(el('div', { class: 'rec-sec' }, [el('h3', { text: 'Other hazards / comments' }), el('div', { text: r.other })]));
+      var otherPh = (res.answers || []).filter(function (a) { return a.key === 'other' && a.photos; })[0];
+      if (r.other || otherPh) box.appendChild(el('div', { class: 'rec-sec' }, [el('h3', { text: 'Other hazards / comments' }), el('div', { text: r.other || '' }),
+        otherPh ? el('div', { class: 'thumbs' }, String(otherPh.photos).split(',').filter(Boolean).map(function (id) {
+          return el('a', { href: 'https://drive.google.com/file/d/' + encodeURIComponent(id) + '/view', target: '_blank', rel: 'noopener' }, [el('img', { src: 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w120', alt: 'Photo', loading: 'lazy' })]);
+        })) : null]));
+      if (r.added) box.appendChild(el('div', { class: 'rec-sec' }, [el('h3', { text: 'Equipment added on the day (not on the checklist yet)' }), el('div', { style: 'white-space:pre-line;font-size:14px', text: r.added })]));
       // review
       var rev = el('div', { class: 'rec-sec' }, [el('h3', { text: 'Superintendent review' })]);
       if (r.reviewedBy) {
@@ -548,6 +554,14 @@
         if (!list || !list.length) return;
         var sec = el('div', { class: 'rec-sec' }, [el('h3', { text: sid + '. ' + titles[sid] })]);
         list.forEach(function (a) {
+          if (a.kind === 'photo') {
+            if (a.photos) sec.appendChild(el('div', { class: 'rec-row' }, [el('span', { text: (a.asset ? a.asset + ': ' : '') + a.label }), el('span', { class: 'res val', text: 'Photo' }),
+              el('div', { class: 'thumbs rn' }, String(a.photos).split(',').filter(Boolean).map(function (id) {
+                return el('a', { href: 'https://drive.google.com/file/d/' + encodeURIComponent(id) + '/view', target: '_blank', rel: 'noopener' }, [el('img', { src: 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w120', alt: 'Photo', loading: 'lazy' })]);
+              }))]));
+            else if (a.noPhoto) sec.appendChild(el('div', { class: 'rec-row' }, [el('span', { text: (a.asset ? a.asset + ': ' : '') + a.label }), el('span', { class: 'res na', text: 'No photo' }), el('span', { class: 'rn', text: a.noPhoto })]));
+            return;
+          }
           if (a.kind === 'text') { if (a.value) sec.appendChild(el('div', { class: 'rec-row' }, [el('span', { text: (a.asset ? a.asset + ': ' : '') + a.label }), el('span', { class: 'res val', text: a.value })])); return; }
           var val = (a.kind === 'date' || a.kind === 'service') && a.value && a.result !== 'na' ? I.dmy(String(a.value).slice(0, 10)) : '';
           sec.appendChild(el('div', { class: 'rec-row' }, [
@@ -555,6 +569,11 @@
             el('span', { class: 'res ' + (a.result || 'val'), text: a.result === 'na' ? 'N/A' : a.result === 'no' ? 'No' : a.result === 'yes' ? 'Yes' : '—' }),
             a.result === 'no' && a.comment ? el('span', { class: 'rn no', text: a.comment }) : null,
             a.result === 'na' && a.naReason ? el('span', { class: 'rn', text: 'N/A: ' + a.naReason }) : null,
+            a.kind === 'service' && a.result !== 'no' && a.comment ? el('span', { class: 'rn', text: 'Note: ' + a.comment }) : null,
+            a.noPhoto ? el('span', { class: 'rn', text: 'No photo: ' + a.noPhoto }) : null,
+            a.photos ? el('div', { class: 'thumbs rn' }, String(a.photos).split(',').filter(Boolean).map(function (id) {
+              return el('a', { href: 'https://drive.google.com/file/d/' + encodeURIComponent(id) + '/view', target: '_blank', rel: 'noopener' }, [el('img', { src: 'https://drive.google.com/thumbnail?id=' + encodeURIComponent(id) + '&sz=w120', alt: 'Photo', loading: 'lazy' })]);
+            })) : null,
             a.at ? el('span', { class: 'rn', text: 'Answered ' + I.clock(new Date(a.at)) }) : null
           ]));
         });

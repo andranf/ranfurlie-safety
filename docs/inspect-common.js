@@ -58,29 +58,36 @@
 
   /* ------------------------------------------------ checklist model */
   // Flatten a checklist into the list of things that get an answer.
-  function questions(cl) {
+  // extra: assets the inspector added on the day, { 'B.ext': [{ id, name, where }] }
+  function questions(cl, extra) {
     var out = [];
+    extra = extra || {};
     (cl.sections || []).forEach(function (s) {
       (s.blocks || []).forEach(function (b) {
         if (b.type === 'items') {
           b.items.forEach(function (it) {
-            out.push({ key: s.id + '.' + it.id, sec: s.id, kind: 'check', id: it.id, label: it.text, sub: it.sub || '', months: it.months || null });
+            out.push({ key: s.id + '.' + it.id, sec: s.id, kind: 'check', id: it.id, label: it.text, sub: it.sub || '', months: it.months || null,
+              photo: it.photo || '', noNA: !!it.noNA });
           });
         } else if (b.type === 'assets') {
-          b.assets.forEach(function (a) {
+          var bkey = s.id + '.' + b.id;
+          var list = b.assets.concat((extra[bkey] || []).map(function (x) { return Object.assign({ added: true }, x); }));
+          list.forEach(function (a) {
             var aname = a.name + (a.where && a.where !== a.name ? ' (' + a.where + ')' : '');
-            var akey = s.id + '.' + b.id + '.' + a.id;
-            if (b.typeField) out.push({ key: akey + '.type', sec: s.id, kind: 'text', label: b.typeField, asset: aname, assetKey: akey, def: a.type || '', unscored: true });
+            var akey = bkey + '.' + a.id;
+            var common = { sec: s.id, asset: aname, assetKey: akey, added: !!a.added };
+            if (b.typeField) out.push(Object.assign({ key: akey + '.type', kind: 'text', label: b.typeField, def: a.type || '', unscored: true }, common));
             (b.checks || []).forEach(function (c) {
-              out.push({ key: akey + '.' + c.id, sec: s.id, kind: 'check', label: c.text, sub: c.sub || '', asset: aname, assetKey: akey });
+              out.push(Object.assign({ key: akey + '.' + c.id, kind: 'check', label: c.text, sub: c.sub || '', photo: c.photo || '', noNA: !!c.noNA }, common));
             });
             (b.dates || []).forEach(function (d) {
-              out.push({ key: akey + '.' + d.id, sec: s.id, kind: 'date', label: d.label, asset: aname, assetKey: akey });
+              out.push(Object.assign({ key: akey + '.' + d.id, kind: 'date', label: d.label, hint: d.hint || '' }, common));
             });
+            if (b.photo) out.push(Object.assign({ key: akey + '.photo', kind: 'photo', label: b.photo, unscored: true }, common));
           });
         } else if (b.type === 'service') {
           b.items.forEach(function (it) {
-            out.push({ key: s.id + '.' + it.id, sec: s.id, kind: 'service', id: it.id, label: it.text, sub: it.freq + ' · ' + it.by });
+            out.push({ key: s.id + '.' + it.id, sec: s.id, kind: 'service', id: it.id, label: it.text, sub: it.freq + ' · ' + it.by, hint: it.hint || '' });
           });
         }
       });
@@ -200,6 +207,39 @@
     });
   }
 
+  /* ------------------------------------------- IndexedDB (photos) */
+  // Photos are too big for localStorage, so drafts keep them here. Every call resolves, never throws.
+  var dbp = null;
+  function db() {
+    if (dbp) return dbp;
+    dbp = new Promise(function (resolve) {
+      try {
+        var r = window.indexedDB.open('ranfurlie-inspections', 1);
+        r.onupgradeneeded = function () { r.result.createObjectStore('kv'); };
+        r.onsuccess = function () { resolve(r.result); };
+        r.onerror = function () { resolve(null); };
+      } catch (e) { resolve(null); }
+    });
+    return dbp;
+  }
+  function idbDo(mode, fn) {
+    return db().then(function (d) {
+      if (!d) return null;
+      return new Promise(function (resolve) {
+        try {
+          var tx = d.transaction('kv', mode), st = tx.objectStore('kv'), req = fn(st);
+          tx.oncomplete = function () { resolve(req && 'result' in req ? req.result : true); };
+          tx.onerror = tx.onabort = function () { resolve(null); };
+        } catch (e) { resolve(null); }
+      });
+    });
+  }
+  var idb = {
+    get: function (k) { return idbDo('readonly', function (st) { return st.get(k); }); },
+    set: function (k, v) { return idbDo('readwrite', function (st) { return st.put(v, k); }); },
+    del: function (k) { return idbDo('readwrite', function (st) { return st.delete(k); }); }
+  };
+
   function uid() {
     var a = new Uint8Array(8);
     (window.crypto || window.msCrypto).getRandomValues(a);
@@ -207,7 +247,7 @@
   }
 
   window.INSP = {
-    API: API, get: get, post: post, local: store('localStorage'),
+    API: API, get: get, post: post, local: store('localStorage'), idb: idb,
     keyOf: keyOf, todayKey: todayKey, parseKey: parseKey, daysUntil: daysUntil, dmy: dmy, when: when, dayMon: dayMon, ago: ago, clock: clock, dueState: dueState, MON: MON,
     questions: questions, sectionTitles: sectionTitles,
     el: el, esc: esc, countUp: countUp, toast: toast, confetti: confetti, reduced: reduced,
