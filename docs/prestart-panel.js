@@ -164,9 +164,15 @@
     // 5. Last check
     var lr = String(res.lastRun || '');
     var lrDay = lr.slice(0, 10), lrTime = lr.slice(11, 16);
-    var late = lrDay !== today && new Date().getHours() >= 7;
-    box.appendChild(kpi(i++, 'Last check', lr ? (lrDay === today ? 'Today ' : nice(lrDay) + ' ') + lrTime : '—', 'Runs every hour, 6am to 2pm',
-      [late ? el('span', { class: 'flag bad', text: '⚠ No check yet today' }) : el('span', { class: 'flag ok', text: '✓ Running' })], [], late));
+    // The check runs at about 5 past each hour, 6am to 2pm. Late = the newest run is more than 70 minutes
+    // older than the run that should have happened most recently.
+    var now = new Date(), exp = new Date(now);
+    if (now.getHours() < 6 || (now.getHours() === 6 && now.getMinutes() < 5)) { exp.setDate(exp.getDate() - 1); exp.setHours(14, 5, 0, 0); }
+    else exp.setHours(Math.min(14, now.getMinutes() >= 5 ? now.getHours() : now.getHours() - 1), 5, 0, 0);
+    var lrAt = lr ? new Date(lrDay + 'T' + (lrTime || '00:00') + ':00') : null;
+    var late = !lrAt || isNaN(lrAt) || lrAt < new Date(exp.getTime() - 70 * 60000);
+    box.appendChild(kpi(i++, 'Last check', lr ? (lrDay === today ? 'Today ' : nice(lrDay) + ' ') + lrTime : '\u2014', 'Runs every hour, 6am to 2pm',
+      [late ? el('span', { class: 'flag bad', text: '\u26a0 Runs missed since then' }) : el('span', { class: 'flag ok', text: '\u2713 Running' })], [], late));
   }
 
   /* ----- daily stacked bars with hover tooltip */
