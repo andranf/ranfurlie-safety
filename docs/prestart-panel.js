@@ -15,6 +15,9 @@
     { k: 'missed', label: 'Missed', color: 'var(--no)' },
     { k: 'todo', label: 'Still to do today', color: '#E3A39B' }
   ];
+  // Counting starts 22 Oct 2026: from 14 to 21 Oct the hourly check was still being fixed (machine names not
+  // matching, a frozen TurfDog log) and tagged some people who had done their pre-start.
+  var START = '2026-10-22';
   var res = null, rows = [], today = '';
 
   function cls(r) {
@@ -42,7 +45,7 @@
         o.reminders = Number(o.reminders) || 0;
         o.c = cls(o);
         return o;
-      });
+      }).filter(function (o) { return o.date >= START; });
       render();
     }).catch(function (x) {
       $('dSub').textContent = '';
@@ -64,7 +67,7 @@
     renderDaily();
     renderPeople();
     renderMisses();
-    $('psFoot').textContent = 'From TurfDog: the hourly pre-start check (6am to 2pm) reads who is on which machine and the pre-check log, and tags anyone who hasn’t done theirs in #safe-work-procedures. Register: Machine Bookings tab.';
+    $('psFoot').textContent = 'From TurfDog: the hourly pre-start check (6am to 2pm) reads who is on which machine and the pre-check log, and tags anyone who hasn’t done theirs in #safe-work-procedures. Counted from 22 Oct 2026 (14 to 21 Oct left out while the check was being fixed). Register: Machine Bookings tab.';
   }
 
   /* ----- KPI tiles */
