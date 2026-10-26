@@ -17,7 +17,7 @@
         <span class="mark" aria-hidden="true"></span>
         <div>
           <div class="brand-name">Ranfurlie Safety</div>
-          <div class="brand-sub">Monthly inspection dashboard</div>
+          <div class="brand-sub">Inspections and pre-starts dashboard</div>
         </div>
       </div>
       <a class="nav-link" href="inspection.html">Start an inspection</a>
@@ -99,6 +99,29 @@
       </div>
       <p class="foot muted" id="foot"></p>
     </div>
+
+    <div id="psView" hidden>
+      <div class="kpis" id="psKpis"></div>
+      <div class="panel">
+        <div class="panel-head">
+          <div><h2>Pre-starts each day</h2><p class="ph-sub">Every machine on the TurfDog board that needed a pre-start. Hover or tap a day for the numbers.</p></div>
+          <button type="button" class="btn ghost tiny" id="psCsv">Export CSV</button>
+        </div>
+        <div class="chart" id="psDaily" style="position:relative"></div>
+        <div class="legend" id="psLegend"></div>
+      </div>
+      <div class="grid2" style="margin-top:14px">
+        <div class="panel">
+          <div class="panel-head"><div><h2>By person</h2><p class="ph-sub">Lowest first. Done after a tag = only done once they were tagged in Slack.</p></div></div>
+          <div class="tbl-wrap"><table class="tbl" id="psPeople"></table></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><h2>Missed pre-starts</h2><p class="ph-sub">On the board for a machine with no pre-start that day. Newest first.</p></div></div>
+          <div class="tbl-wrap"><table class="tbl" id="psMisses"></table></div>
+        </div>
+      </div>
+      <p class="foot muted" id="psFoot"></p>
+    </div>
   </main>
 
   <div id="modal" hidden></div>
@@ -106,6 +129,7 @@
   <script src="config.js"></script>
   <script src="inspect-checklists.js"></script>
   <script src="inspect-common.js"></script>
+  <script src="prestart-panel.js"></script>
   <script src="inspection-dashboard.js"></script>
 </body>
 </html>

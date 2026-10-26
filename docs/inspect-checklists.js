@@ -30,7 +30,7 @@ window.INSPECT_CHECKLISTS = {
     id: 'compound',
     name: 'Maintenance compound',
     sub: 'Sheds, workshop, chemical shed, fuel bay, wash-down bay, lunchroom, compound, car park and the course lightning shelters',
-    version: '2026.10-2',
+    version: '2026.10-3',
     everyDays: 31,
     sections: [
 
@@ -83,8 +83,7 @@ window.INSPECT_CHECKLISTS = {
             { id: 'sign', text: 'Signed and accessible' },
             { id: 'contents', text: 'Contents list inside the kit, and everything on it is there', photo: 'the open kit' },
             { id: 'dates', text: 'All items in date' },
-            { id: 'snake', text: 'At least 2 snake / compression bandages' },
-            { id: 'asthma', text: 'Asthma reliever and spacer in date (if the contents list includes them)' }
+            { id: 'snake', text: 'At least 2 snake / compression bandages' }
           ] },
         { type: 'items', items: [
           { id: 'A1', text: 'DRSABCD chart displayed at each AED / first aid point and is the current version' },
@@ -201,7 +200,7 @@ window.INSPECT_CHECKLISTS = {
         { type: 'items', items: [
           { id: 'F1', text: 'Any defective plant has an OUT OF SERVICE tag filled in (who, date, fault) and the key removed' },
           { id: 'F2', text: 'PTO shafts and guards in place on tractors and attachments' },
-          { id: 'F3', text: 'Keys not left in plant parked outside the compound; buckets lowered flat; plant parked clear of walkways' },
+          { id: 'F3', text: 'Buckets lowered flat; plant parked clear of walkways' },
           { id: 'F4', text: 'Pre-start checks done in TurfDog for plant used this month' },
           { id: 'F5', text: 'Hearing protection decals on plant that needs them' },
           { id: 'F6', text: 'Seats, tyres, steps and anti-slip surfaces in good condition; no hydraulic or oil leaks' },

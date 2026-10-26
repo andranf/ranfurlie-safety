@@ -14,7 +14,7 @@
 
   function init() {
     var qs = new URLSearchParams(location.search);
-    if (qs.get('site') && LISTS[qs.get('site')]) site = qs.get('site');
+    if (qs.get('site') && (LISTS[qs.get('site')] || qs.get('site') === 'prestarts')) site = qs.get('site');
     if (!I.API) { notice('This page is being set up. Check back soon.'); return; }
     renderTabs();
     $('period').addEventListener('change', load);
@@ -42,9 +42,17 @@
       box.appendChild(el('button', { type: 'button', 'aria-pressed': String(id === site), disabled: !!c.comingSoon, title: c.comingSoon ? 'Coming soon' : '',
         text: c.name + (c.comingSoon ? ' (soon)' : ''), onclick: function () { site = id; renderTabs(); load(); } }));
     });
+    box.appendChild(el('button', { type: 'button', 'aria-pressed': String(site === 'prestarts'), text: 'Machine pre-starts',
+      onclick: function () { site = 'prestarts'; renderTabs(); load(); } }));
   }
 
   function load(quiet) {
+    if (site === 'prestarts') {
+      $('content').hidden = true;
+      if (window.PrestartPanel) window.PrestartPanel.show($('period').value);
+      return;
+    }
+    if (window.PrestartPanel) window.PrestartPanel.hide();
     if (!quiet) $('dSub').textContent = 'Loading…';
     I.get({ action: 'inspData', site: site, months: $('period').value }).then(function (res) {
       data = prep(res);

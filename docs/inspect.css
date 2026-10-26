@@ -435,3 +435,17 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .asset .ph-more.optional { display: none; }
 .ph-more.optional .ph-add { font-size: 12.5px; font-weight: 500; }
 .card-photo { text-align: left; }
+
+/* ----- Machine pre-starts view */
+#psDaily .ps-seg { transform-box: fill-box; transform-origin: bottom; animation: grow-y .6s calc(var(--i, 0) * 12ms) var(--ease) both; }
+#psDaily .ps-none { fill: #CCD3DB; }
+#psDaily .hit { fill: transparent; cursor: crosshair; }
+@keyframes grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+.ps-rate { min-width: 120px; }
+.ps-rate .ps-pct { display: inline-block; min-width: 42px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ps-rate .meter { display: inline-block; width: calc(100% - 48px); min-width: 60px; vertical-align: middle; }
+#psView .tbl .flag { align-items: center; gap: 4px; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 8px; margin-left: 4px; }
+#psView .tbl td:nth-child(5) .flag { margin-left: 0; }
+#psKpis .minibars span { background: var(--no); }
+#psView .grid2 > .panel { margin-top: 0; }
+@media (prefers-reduced-motion: reduce) { #psDaily .ps-seg { animation: none; } }
