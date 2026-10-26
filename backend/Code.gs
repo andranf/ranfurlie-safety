@@ -25,6 +25,8 @@
  *     Inspections, Inspection Defects and Inspection Answers tabs are the register. Defects are closed out and
  *     inspections reviewed from the dashboard (name, note, signature). Slack summary on submit; reminder when due.
  * Manual runs for inspections: setupInspections, previewInspectionReminder.
+ *   - Pre-start stats for the safety dashboard (docs/inspection-dashboard.html, "Machine pre-starts" tab):
+ *     GET action=prestartStats&days=N returns the Machine Bookings rows for the period.
  */
 
 const TZ = 'Australia/Melbourne';
@@ -635,6 +637,7 @@ function doGet(e) {
     if (p.action === 'prestartPlan') return json_(prestartPlan_(p));
     if (p.action === 'prestartPosted') return json_(prestartPosted_(p));
     if (p.action === 'prestartFlag') return json_(prestartFlag_(p));
+    if (p.action === 'prestartStats') return json_(prestartStats_(p));
     if (p.action === 'focusPlan') return json_(focusPlan_(p));
     if (p.action === 'focusPosted') return json_(focusPosted_(p));
     if (p.action === 'reviewList') return json_(reviewList_(p));
@@ -2704,6 +2707,7 @@ function previewInspectionReminder() {
 function inspEnsure_(force) {
   const ss = book_();
   const props = PropertiesService.getScriptProperties();
+  try { inspRetire_(); } catch (e) { console.warn('inspRetire_: ' + e); }
   if (!force && props.getProperty('insp_ready') === '5') return;
   if (!('INSP_PAGE_URL' in settings_())) ensureSettings_();
   const widths = {
@@ -3123,4 +3127,67 @@ function inspReminders_(opt) {
     if (res.getResponseCode() === 200) props.setProperty('insp_remind_' + a, today);
   });
   return out.join('\n\n');
+}
+
+/* ------------------------------------------------ Retired checklist lines */
+// Lines taken off a checklist. Any defect still open on them is closed once with the reason (no signature:
+// these weren't fixed, the item was dropped). Runs the first time inspEnsure_ is called after deploying.
+const INSP_RETIRED = [
+  { area: 'compound', re: /^A\.fak\.[^.]+\.asthma$/, note: 'Removed from the checklist 27 Oct 2026 (Andrew Anderson): staff supply their own puffers and EpiPens.' },
+  { area: 'compound', re: /^F\.F3$/, note: 'Keys removed from the checklist 27 Oct 2026 (Andrew Anderson): keys stay in vehicles around the shed.' }
+];
+
+function inspRetire_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('insp_retired') === '1') return;
+  if (!book_().getSheetByName(INSP_TAB.DEF)) return;
+  const t = read_(INSP_TAB.DEF);
+  const now = new Date();
+  let n = 0;
+  t.rows.forEach(r => {
+    if (String(r.Status).trim() === 'Closed') return;
+    const k = String(r.Key || '').trim();
+    const hit = INSP_RETIRED.find(x => x.area === String(r.Area).trim() && x.re.test(k));
+    if (!hit) return;
+    writeRow_(t, r._row, { 'Status': 'Closed', 'Closed by': 'Andrew Anderson', 'Closed at': now, 'Close-out note': hit.note });
+    n++;
+  });
+  props.setProperty('insp_retired', '1');
+  if (n) inspBust_();
+}
+
+/* ------------------------------------------------ Pre-start stats (safety dashboard) */
+// GET action=prestartStats&days=N (7-400, default 90): every machine booking in the period from the Machine
+// Bookings tab, as the hourly TurfDog task last left it (one row per day + shift + person + machine).
+// Pre-start: Done / Not done / Not due yet / Not needed... / Off the board. Reminders = times they were tagged.
+function prestartStats_(p) {
+  const days = Math.max(7, Math.min(400, Math.round(num_(p.days, 90))));
+  const ck = 'ps:stats:' + days;
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get(ck);
+  if (hit) return JSON.parse(hit);
+  const today = dayKey_(new Date());
+  const from = addDays_(today, -(days - 1));
+  const rows = [];
+  if (book_().getSheetByName(TAB.BOOKINGS)) {
+    const t = read_(TAB.BOOKINGS);
+    const cAt = t.col('Pre-start at');
+    const last = t.sh.getLastRow();
+    const atDisp = cAt > 0 && last > 1 ? t.sh.getRange(2, cAt, last - 1, 1).getDisplayValues() : [];
+    t.rows.forEach(r => {
+      const d = toKey_(r.Date);
+      if (!d || d < from || d > today) return;
+      const staff = String(r.Staff || '').trim(), machine = String(r.Machine || '').trim();
+      if (!staff || !machine) return;
+      const at = String(((atDisp[r._row - 2] || [])[0]) || '').trim();
+      rows.push([d, num_(r.Shift, 1), String(r.Task || '').trim(), staff, machine, String(r['Pre-start'] || '').trim(), at, num_(r.Reminders, 0)]);
+    });
+  }
+  rows.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1]));
+  let lastRun = '';
+  try { const plan = JSON.parse(PropertiesService.getScriptProperties().getProperty('ps:plan') || '{}'); if (plan.date) lastRun = plan.date + ' ' + (plan.time || ''); } catch (e) {}
+  const out = { ok: true, days, from, today, lastRun, cols: ['date', 'shift', 'task', 'staff', 'machine', 'pre', 'at', 'reminders'], rows, generated: new Date().toISOString() };
+  const str = JSON.stringify(out);
+  try { if (str.length < 95000) cache.put(ck, str, 600); } catch (e) {}
+  return out;
 }
