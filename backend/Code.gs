@@ -1502,10 +1502,25 @@ function keyList_(kc) {
       status: o ? (keyIsLost_(o) ? 'Lost' : 'Out') : 'In',
       with: o ? String(o.Staff || '').trim() : '',
       since: o ? when_(o['Out at']) : '',
+      sinceIso: o && asDate_(o['Out at']) ? asDate_(o['Out at']).toISOString() : '',
       due: due ? dueText_(due) : '',
       overdue: !!(o && !keyIsLost_(o) && due && due <= kc.now)
     };
   });
+}
+
+// Last few sign-outs, newest first (Course Ops Keys tab).
+function keyRecent_(kc, n) {
+  return kc.log.rows.filter(r => String(r.Key || '').trim() && asDate_(r['Out at']))
+    .sort((a, b) => asDate_(b['Out at']) - asDate_(a['Out at'])).slice(0, n || 8).map(r => {
+      const open = isOpenKey_(r), st = String(r.Status || '').trim();
+      return {
+        key: String(r.Key).trim(), who: String(r.Staff || '').trim(),
+        out: when_(r['Out at']), outIso: asDate_(r['Out at']).toISOString(),
+        back: open ? '' : when_(r['Returned at']), by: open ? '' : String(r['Returned by'] || '').trim(),
+        status: open ? (keyIsLost_(r) ? 'Lost' : 'Out') : (KEY_CLOSED.indexOf(st.toLowerCase()) >= 0 ? st : 'Returned')
+      };
+    });
 }
 
 // Page load: keys, staff, due-back time and (once a name is known) the key SOP status.
@@ -1518,7 +1533,7 @@ function keys_(b) {
     ok: true,
     staff: kc.staff.filter(isActive_).map(r => String(r.Name).trim()).sort(),
     me: st ? String(st.Name).trim() : '', whoError: whoErr,
-    keys: keyList_(kc),
+    keys: keyList_(kc), recent: keyRecent_(kc, 8),
     sop: keySop_(kc, st),
     dueBack: dueText_(keyDue_(kc.now, kc.s)), dueRule: dueRule_(kc.s),
     terms: t.terms, liability: t.liability,
