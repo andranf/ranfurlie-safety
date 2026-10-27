@@ -96,6 +96,7 @@ const SEED_SETTINGS = [
   ['INSP_DASH_URL', 'https://andranf.github.io/ranfurlie-safety/inspection-dashboard.html', 'Inspection dashboard (linked in Slack posts)'],
   ['INSP_EVERY_DAYS', 31, 'An area is due for its next inspection this many days after the last one'],
   ['INSP_REMIND', 'TRUE', 'Post a Slack reminder at 7am on weekdays when an area is due, then weekly until it is done'],
+  ['INSP_REMIND_AMSTEL', 'FALSE', 'Slack due-reminders for The Amstel Club checklist. Off while it is a draft; set TRUE once Amstel starts using it'],
   ['INSP_ALERT_CC', 'U06BCCG4HT9 U06NBNSR9LG U06FJ0J1RH8', 'Slack IDs tagged on High defects and overdue inspections (Andrew, Ben, Neil)'],
   ['INSP_SLACK_WEBHOOK_URL', '', 'Webhook for inspection posts - leave blank to use SLACK_WEBHOOK_URL'],
   ['INSP_PHOTO_FOLDER_ID', '', 'Drive folder for defect photos (made automatically, view-by-link so the dashboard can show them)'],
@@ -445,7 +446,7 @@ const README_LINES = [
   'Submitting: the inspector ticks the declaration and signs. The Inspections tab records the start time, submit time, minutes taken, counts, score (Yes as a % of Yes + No), checklist version, device and signature. Every answer goes to Inspection Answers with the time it was answered.',
   "Defects: one row each on Inspection Defects with a priority. If the same line is still open from an earlier inspection, that row is updated instead (Times seen, Last seen, Latest note). Ones fixed on the spot are closed straight away. Everything else stays Open until someone closes it out on the dashboard with their name, what was done and a signature.",
   'Dashboard: INSP_DASH_URL. Score trend, pass rate by section, repeat failures, expiries and service dates, the defect register (close-out), inspection history (full record, Superintendent review and sign) and the N/A register. CSV export.',
-  'Slack: a summary posts when an inspection is submitted (High defects tag INSP_ALERT_CC). At 7am on weekdays an area that is due gets a reminder, then weekly until it is done (INSP_EVERY_DAYS, INSP_REMIND).',
+  'Slack: a summary posts when an inspection is submitted (High defects tag INSP_ALERT_CC). At 7am on weekdays an area that is due gets a reminder, then weekly until it is done (INSP_EVERY_DAYS, INSP_REMIND). The Amstel Club gets reminders only once INSP_REMIND_AMSTEL is TRUE.',
   'Changing the checklist: edit docs/inspect-checklists.js on GitHub and bump its version. Manual runs: setupInspections, previewInspectionReminder.',
   '',
   'TURFDOG PRE-STARTS AND MACHINE SWPs',
@@ -1502,25 +1503,10 @@ function keyList_(kc) {
       status: o ? (keyIsLost_(o) ? 'Lost' : 'Out') : 'In',
       with: o ? String(o.Staff || '').trim() : '',
       since: o ? when_(o['Out at']) : '',
-      sinceIso: o && asDate_(o['Out at']) ? asDate_(o['Out at']).toISOString() : '',
       due: due ? dueText_(due) : '',
       overdue: !!(o && !keyIsLost_(o) && due && due <= kc.now)
     };
   });
-}
-
-// Last few sign-outs, newest first (Course Ops Keys tab).
-function keyRecent_(kc, n) {
-  return kc.log.rows.filter(r => String(r.Key || '').trim() && asDate_(r['Out at']))
-    .sort((a, b) => asDate_(b['Out at']) - asDate_(a['Out at'])).slice(0, n || 8).map(r => {
-      const open = isOpenKey_(r), st = String(r.Status || '').trim();
-      return {
-        key: String(r.Key).trim(), who: String(r.Staff || '').trim(),
-        out: when_(r['Out at']), outIso: asDate_(r['Out at']).toISOString(),
-        back: open ? '' : when_(r['Returned at']), by: open ? '' : String(r['Returned by'] || '').trim(),
-        status: open ? (keyIsLost_(r) ? 'Lost' : 'Out') : (KEY_CLOSED.indexOf(st.toLowerCase()) >= 0 ? st : 'Returned')
-      };
-    });
 }
 
 // Page load: keys, staff, due-back time and (once a name is known) the key SOP status.
@@ -1533,7 +1519,7 @@ function keys_(b) {
     ok: true,
     staff: kc.staff.filter(isActive_).map(r => String(r.Name).trim()).sort(),
     me: st ? String(st.Name).trim() : '', whoError: whoErr,
-    keys: keyList_(kc), recent: keyRecent_(kc, 8),
+    keys: keyList_(kc),
     sop: keySop_(kc, st),
     dueBack: dueText_(keyDue_(kc.now, kc.s)), dueRule: dueRule_(kc.s),
     terms: t.terms, liability: t.liability,
@@ -2705,7 +2691,9 @@ const INSP_HEAD = {
   'Inspection Answers': ['Submitted', 'Receipt', 'Area', 'Section', 'Key', 'Kind', 'Item', 'Equipment', 'Result', 'Value', 'Last done', 'Comment', 'N/A reason', 'Answered at',
     'Photos', 'Photo IDs', 'No photo reason']
 };
-const INSP_AREAS = { compound: 'Maintenance compound', clubhouse: 'Clubhouse & driving range' };
+const INSP_AREAS = { compound: 'Maintenance compound', clubhouse: 'Clubhouse & driving range', amstel: 'The Amstel Club' };
+// Areas whose Slack due-reminders stay off until their INSP_REMIND_<AREA> setting is TRUE (checklist still a draft).
+const INSP_REMIND_OPT_IN = ['amstel'];
 
 // Manual run: create the inspection tabs and settings (also happens automatically on first use).
 function setupInspections() {
@@ -2723,8 +2711,8 @@ function inspEnsure_(force) {
   const ss = book_();
   const props = PropertiesService.getScriptProperties();
   try { inspRetire_(); } catch (e) { console.warn('inspRetire_: ' + e); }
-  if (!force && props.getProperty('insp_ready') === '5') return;
-  if (!('INSP_PAGE_URL' in settings_())) ensureSettings_();
+  if (!force && props.getProperty('insp_ready') === '6') return;
+  if (!('INSP_REMIND_AMSTEL' in settings_())) ensureSettings_();
   const widths = {
     'Inspections': [140, 160, 90, 170, 150, 140, 140, 70, 50, 50, 50, 55, 70, 110, 300, 300, 80, 220, 110, 150, 140, 260, 90],
     'Inspection Defects': [190, 160, 90, 140, 150, 70, 55, 170, 330, 200, 330, 75, 70, 140, 280, 260, 120, 75, 80, 220, 150, 140, 300, 90],
@@ -2766,7 +2754,7 @@ function inspEnsure_(force) {
     const k = 'INSP_GO_LIVE_' + a.toUpperCase();
     if (a !== 'compound' && !String(st0[k] || '').trim()) setSetting_(k, dayKey_(new Date()));
   });
-  props.setProperty('insp_ready', '5');
+  props.setProperty('insp_ready', '6');
 }
 
 function inspSettings_() {
@@ -3128,6 +3116,7 @@ function inspReminders_(opt) {
   Object.keys(st).forEach(a => {
     const s = st[a];
     if (!s.nextDue || s.nextDue > today) return;
+    if (INSP_REMIND_OPT_IN.indexOf(a) >= 0 && !bool_(cfg.s['INSP_REMIND_' + a.toUpperCase()] || 'FALSE')) return;
     const lastSent = props.getProperty('insp_remind_' + a) || '';
     if (!opt.force && lastSent && addDays_(lastSent, 7) > today) return;
     const lines = [':clipboard: *Monthly H&S inspection due: ' + (INSP_AREAS[a] || a) + '*',
