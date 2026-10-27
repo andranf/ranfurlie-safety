@@ -56,6 +56,9 @@
 .site .s-stat.due { color: var(--no); }
 .site .s-stat.ok { color: var(--yes); }
 .site .soon { position: absolute; top: 10px; right: 10px; font-size: 11px; font-weight: 700; background: #EEF1EF; color: var(--muted); border-radius: 999px; padding: 2px 8px; }
+.site .soon.badge { background: var(--warn-bg); color: var(--warn); }
+.site .soon + .s-name { padding-right: 64px; }
+.sites > .site:last-child:nth-child(odd) { grid-column: 1 / -1; }
 @media (max-width: 520px) { .sites { grid-template-columns: 1fr; } }
 
 .resume { background: var(--warn-bg); border: 1px solid #EDD6A8; border-radius: 12px; padding: 12px 14px; margin: 14px 0 0; font-size: 15px; }

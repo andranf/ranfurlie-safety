@@ -57,6 +57,8 @@
   /* =========================================================== start */
 
   function renderSites() {
+    var em = document.querySelector('.emergency .wrap span');   // emergency banner shows the address of the site being inspected
+    if (em) { if (!em.getAttribute('data-def')) em.setAttribute('data-def', em.textContent); em.textContent = (LISTS[site] && LISTS[site].address) || em.getAttribute('data-def'); }
     var box = $('sites');
     box.innerHTML = '';
     Object.keys(LISTS).forEach(function (id, i) {
@@ -75,6 +77,7 @@
       var b = el('button', { type: 'button', class: 'site anim-in', style: '--i:' + i, 'aria-pressed': String(id === site), disabled: !!c.comingSoon,
         onclick: function () { site = id; renderSites(); refreshStart(); } }, [
         c.comingSoon ? el('span', { class: 'soon', text: 'Coming soon' }) : null,
+        !c.comingSoon && c.badge ? el('span', { class: 'soon badge', text: c.badge }) : null,
         el('div', { class: 's-name', text: c.name }),
         el('div', { class: 's-sub', text: c.comingSoon ? 'Checklist is on the way' : c.sub }),
         line
