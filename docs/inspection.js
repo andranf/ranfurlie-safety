@@ -75,7 +75,7 @@
         }
       }
       var b = el('button', { type: 'button', class: 'site anim-in', style: '--i:' + i, 'aria-pressed': String(id === site), disabled: !!c.comingSoon,
-        onclick: function () { site = id; renderSites(); refreshStart(); } }, [
+        onclick: function () { site = id; renderSites(); fillNames(); } }, [
         c.comingSoon ? el('span', { class: 'soon', text: 'Coming soon' }) : null,
         !c.comingSoon && c.badge ? el('span', { class: 'soon badge', text: c.badge }) : null,
         el('div', { class: 's-name', text: c.name }),
@@ -87,14 +87,41 @@
     refreshStart();
   }
 
+  // Clubhouse and Amstel inspections can be done by someone not on the list yet:
+  // "My name isn't here" lets them type it, and the backend adds them as a Guest.
+  function allowNew() { return site !== 'compound'; }
+  function newNameBox() {
+    var box = $('newNameBox');
+    if (!box) {
+      box = el('div', { id: 'newNameBox', class: 'new-name', hidden: true }, [
+        el('input', { type: 'text', id: 'newName', autocomplete: 'name', placeholder: 'First and last name' }),
+        el('div', { class: 'muted', style: 'font-size:13px;margin-top:6px', text: 'You’ll be added to the list, so next time just pick your name.' })
+      ]);
+      $('nameSel').parentNode.insertBefore(box, $('nameSel').nextSibling);
+      $('newName').addEventListener('input', refreshStart);
+    }
+    return box;
+  }
+  function typedName() {
+    var v = String(($('newName') || {}).value || '').replace(/\s+/g, ' ').trim();
+    return v.split(' ').length >= 2 && v.length >= 4 ? v : '';
+  }
+  function pickedName() {
+    var v = $('nameSel').value;
+    return v === '__new' ? typedName() : v;
+  }
   function fillNames() {
     var sel = $('nameSel');
+    var keep = sel.value;
     sel.innerHTML = '';
     sel.appendChild(el('option', { value: '', text: 'Choose…' }));
     staff.forEach(function (n) { sel.appendChild(el('option', { value: n, text: n })); });
+    if (allowNew()) sel.appendChild(el('option', { value: '__new', text: 'My name isn’t here…' }));
     var last = I.local.get('rs_name');
-    if (last && staff.indexOf(last) >= 0) sel.value = last;
-    sel.onchange = refreshStart;
+    if (keep && (staff.indexOf(keep) >= 0 || (keep === '__new' && allowNew()))) sel.value = keep;
+    else if (last && staff.indexOf(last) >= 0) sel.value = last;
+    sel.onchange = function () { newNameBox().hidden = sel.value !== '__new'; if (sel.value === '__new') $('newName').focus(); refreshStart(); };
+    newNameBox().hidden = sel.value !== '__new';
     refreshStart();
   }
 
@@ -104,7 +131,7 @@
   function dropDraft(id) { I.local.del(draftKey(id)); I.idb.del(photoKey(id)); }
 
   function refreshStart() {
-    var name = $('nameSel').value;
+    var name = pickedName();
     $('startBtn').disabled = !name || !LISTS[site] || LISTS[site].comingSoon;
     var d = readDraft(site);
     var box = $('resume');
@@ -142,12 +169,13 @@
   }
 
   $('startBtn').addEventListener('click', function () {
-    var name = $('nameSel').value;
+    var name = pickedName();
     if (!name) return;
+    var isNew = $('nameSel').value === '__new';
     I.local.set('rs_name', name);
     var c = LISTS[site];
     dropDraft(site);
-    begin({ v: 2, site: site, version: c.version, clientId: I.uid(), inspector: name, startedAt: new Date().toISOString(),
+    begin({ v: 2, site: site, version: c.version, clientId: I.uid(), inspector: name, newName: isNew ? name : '', startedAt: new Date().toISOString(),
       step: 0, ans: {}, assetNA: {}, pri: {}, fixed: {}, photos: {}, extra: {}, other: '', active: 0, lastAct: Date.now() });
   });
 
@@ -949,7 +977,7 @@
     Object.keys(S.extra || {}).forEach(function (k) { (S.extra[k] || []).forEach(function (x) { added.push(k + ': ' + x.name + ' (' + x.where + ')'); }); });
     return {
       action: 'inspSubmit', clientId: S.clientId, site: S.site, siteName: cl.name, version: cl.version,
-      name: S.inspector, startedAt: S.startedAt, finishedAt: new Date().toISOString(), activeMinutes: Math.max(1, Math.round((S.active || 0) / 60000)),
+      name: S.inspector, newName: S.newName || '', startedAt: S.startedAt, finishedAt: new Date().toISOString(), activeMinutes: Math.max(1, Math.round((S.active || 0) / 60000)),
       counts: { yes: t.yes, no: t.no, na: t.na, total: t.total, score: t.score },
       answers: answers, defects: defects, added: added, other: S.other || '', declare: true, declaration: DECLARATION,
       signature: pad.png(), ua: navigator.userAgent

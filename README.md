@@ -102,3 +102,25 @@ Dashboard: https://andranf.github.io/ranfurlie-safety/inspection-dashboard.html
 - **Dashboard:** last inspection and next due, score trend, pass rate by section, repeat failures, expiries & service dates, defect register with close-out (name, what was done, signature), inspection history (full record with photos, print, *Review & sign*), N/A register, CSV export. Flags inspections with under 15 minutes on the walk-around.
 - **Slack:** summary when an inspection is submitted (High defects tag `INSP_ALERT_CC`); 7am weekday reminder when an area is due (31 days after the last one; the first clubhouse one a week after `INSP_GO_LIVE_CLUBHOUSE`), then weekly until it's done. Settings: `INSP_EVERY_DAYS`, `INSP_REMIND`, `INSP_ALERT_CC`, `INSP_SLACK_WEBHOOK_URL` (blank = same channel as the safety reminders).
 - **Changing a checklist:** edit `docs/inspect-checklists.js` and bump that area's `version`. Item options: `photo`, `noNA`, `months`; equipment blocks: `photo`, `addable`, date `hint`. Manual runs: `setupInspections`, `previewInspectionReminder`.
+
+## Contractors
+
+Sign-in, sign-out, induction and register: https://andranf.github.io/ranfurlie-safety/contractors.html (register view: `?view=register`).
+
+Built to the WHS Committee's June 2026 direction: tailored to each site, sign-in **and** sign-out on every visit (it is the emergency roll call), and induction and documents scaled to risk.
+
+- **Sites:** `?site=course` (Ranfurlie course & maintenance compound), `?site=clubhouse` (Ranfurlie clubhouse & driving range), `?site=amstel` (The Amstel Club). Each has its own A4 QR poster in `docs/contractors/` (rebuild with `python3 tools/contractor_poster.py`), and the site's emergency details show at sign-in.
+- **Risk levels:**
+  - *Delivery or visit* (no tools or work): sign in with name, company, mobile, host and the site rules. No induction.
+  - *Medium* (any work on site): induction once every 12 months (`CON_VALID_MONTHS`), public liability insurer + expiry + certificate photo (or "emailed"), WorkCover answer, emergency contact.
+  - *High* (any of the ten high-risk activities: hot work, digging, height, electrical, chemicals, plant, trees, confined space, water, roads): as Medium plus licences/tickets (text + photo) and a SWMS. At each sign-in they tick the high-risk work for the day and confirm the SWMS is with their host.
+- **Induction:** seven short sections (sign-in rules, emergencies, golfers and the range, weather and fire, site hazards, environment and trees, their duties incl. SWMS for high-risk construction work), minimum read time, 8-question knowledge check (wrong answers come back round), declaration and finger signature. Content is `CON_INDUCTION` in `docs/contractors.js`; the version and answer key must match `CON_INDUCTION_VERSION` / `CON_QUIZ_ANSWERS` in the backend.
+- **Checks at sign-in:** work can't be signed in without a current induction; expired insurance is flagged; hot work and digging add a reminder to the record and Slack.
+- **Register (sheet tabs):** *Contractors* (one row per induction; latest row counts; set Status to Blocked or Left to stop sign-ins) and *Contractor Visits* (every sign-in and sign-out). Certificates, licence photos and signatures go to the private *Contractor documents* and Signatures folders.
+- **Slack:** each induction; high-risk sign-ins (host + `CON_ALERT_CC`, blank = `INSP_ALERT_CC`); once a day after `CON_CHECK_AFTER` (17:30) anyone still signed in. `CON_SLACK_ALL` TRUE posts every sign-in.
+- **Monthly inspections** check the register is being used (compound H7, clubhouse G7, Amstel F9).
+- Manual runs: `setupContractors` (tabs, settings, and Wayne Hood / Sahil Sahib as clubhouse Guests), `previewContractorCheck`.
+
+## New names on the clubhouse and Amstel inspections
+
+The clubhouse & range and Amstel inspection pages have *My name isn't here…* at the bottom of the name list. The person types their name; when they submit, they're added to the Staff tab as a Guest (Groups `Guest, Clubhouse` or `Guest, Amstel`, with a note to check the name and role), so next time they just pick it. The Slack summary says who was added. The maintenance compound list stays fixed.

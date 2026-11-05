@@ -37,7 +37,7 @@ window.INSPECT_CHECKLISTS = {
     id: 'compound',
     name: 'Maintenance compound',
     sub: 'Sheds, workshop, chemical shed, fuel bay, wash-down bay, lunchroom, compound, car park and the course lightning shelters',
-    version: '2026.10-3',
+    version: '2026.11-1',
     everyDays: 31,
     sections: [
 
@@ -244,7 +244,8 @@ window.INSPECT_CHECKLISTS = {
           { id: 'H4', text: 'Speed limit, shared zone and “Beware of Pedestrians” signs and bollards in place and visible' },
           { id: 'H5', text: 'Work areas in the car park separated from the public (bollards / cones); orange hi-vis worn there' },
           { id: 'H6', text: 'HAZCHEM sign at the gate; “No Unauthorised Entry” sign on the fence' },
-          { id: 'H7', text: 'Contractor / visitor sign-in register at the shed is being used', sub: 'Check this month’s entries' },
+          { id: 'H7', text: 'Contractor sign-in QR poster up at the shed; contractors on site this month are signed in and out on the register',
+            sub: 'Check the register (contractors.html?view=register): nobody left signed in, everyone working is inducted with current insurance' },
           { id: 'H8', text: 'Bins: lids closed, not overflowing' },
           { id: 'H9', text: 'Safety signs (PPE, hearing, chemical, corrosive) in place and legible' },
           { id: 'H10', text: 'Maintenance driveway (emergency vehicle access): no potholes, overhanging trees cut back, nothing parked across it' },
@@ -276,7 +277,7 @@ window.INSPECT_CHECKLISTS = {
     id: 'clubhouse',
     name: 'Clubhouse & driving range',
     sub: 'Clubhouse, kitchens, function rooms, pro shop, golf ops, cart store, driving range, car park and outside',
-    version: '2026.10-1',
+    version: '2026.11-1',
     everyDays: 31,
     sections: [
 
@@ -519,8 +520,8 @@ window.INSPECT_CHECKLISTS = {
           { id: 'G4', text: 'Portico 2.5 m height-limit sign visible', sub: 'A truck hit the portico in Jan 2024' },
           { id: 'G5', text: 'HAZCHEM sign at the front gate / entrance', sub: 'RCW 2026' },
           { id: 'G6', text: 'Loading area clear (nothing blocking doors); bins lidded and not overflowing' },
-          { id: 'G7', text: 'Contractor / visitor sign-in book at reception in place and being used', noNA: true,
-            sub: 'June 2026 WHS paper: the clubhouse and range had no contractor sign-in. Answer No until there is one.' },
+          { id: 'G7', text: 'Contractor sign-in QR poster at reception and the range; contractors this month signed in and out', noNA: true,
+            sub: 'June 2026 WHS paper: the clubhouse and range had no contractor sign-in. Digital register from Nov 2026 (contractors.html?view=register).' },
           { id: 'G8', text: 'Range boundary fence and gates secure; no gaps where people can walk onto the range' }
         ] }
       ] },
@@ -556,7 +557,7 @@ window.INSPECT_CHECKLISTS = {
     sub: 'Gaming room, bars, bistro & kids’ play, function rooms, kitchens & Airstream van, keg rooms, offices, loading dock and car parks',
     badge: 'Draft',
     address: 'The Amstel Club, 1000 Cranbourne–Frankston Rd, Cranbourne',
-    version: '2026.10-1',
+    version: '2026.11-1',
     everyDays: 31,
     sections: [
 
@@ -782,7 +783,7 @@ window.INSPECT_CHECKLISTS = {
           { id: 'F7', text: 'Responsible gambling and Gambler’s Help signage displayed; self-exclusion register up to date', sub: 'Gaming Code of Conduct; RCW Dec 2025' },
           { id: 'F8', text: 'Conditions of entry and zero-tolerance (violence and aggression) signs at the entrances',
             sub: 'Jul–Sep 2026: four aggression incidents, including security punched in the foyer (Major)' },
-          { id: 'F9', text: 'Contractor sign-in book at reception being used, including signing out', noNA: true,
+          { id: 'F9', text: 'Contractor sign-in (book or QR register) at reception being used, including signing out', noNA: true,
             sub: 'WHS committee Jun 2026: sign-in exists but sign-out isn’t consistent, and it matters in an evacuation' },
           { id: 'F10', text: 'Reception: hand sanitiser container stood in a tub; occupancy permit displayed at the entrance',
             sub: 'RCW Sep 2026 item 5.0. Occupancy permit BS-U 44447/20180106/2 & 3.' },

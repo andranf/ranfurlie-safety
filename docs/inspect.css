@@ -452,3 +452,4 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 #psKpis .minibars span { background: var(--no); }
 #psView .grid2 > .panel { margin-top: 0; }
 @media (prefers-reduced-motion: reduce) { #psDaily .ps-seg { animation: none; } }
+.new-name { margin-top: 8px; }

@@ -27,6 +27,10 @@
  * Manual runs for inspections: setupInspections, previewInspectionReminder.
  *   - Pre-start stats for the safety dashboard (docs/inspection-dashboard.html, "Machine pre-starts" tab):
  *     GET action=prestartStats&days=N returns the Machine Bookings rows for the period.
+ *   - Contractors (docs/contractors.html): risk-based induction (valid 12 months, insurance and licence photos,
+ *     knowledge check, signature) and sign-in / sign-out on every visit. Contractors and Contractor Visits tabs.
+ *     Slack on high-risk sign-ins, and anyone still signed in after CON_CHECK_AFTER.
+ * Manual runs for contractors: setupContractors, previewContractorCheck.
  */
 
 const TZ = 'Australia/Melbourne';
@@ -633,6 +637,7 @@ function doGet(e) {
     if (p.action === 'ping') return json_({ ok: true, time: new Date().toISOString() });
     if (p.action === 'doc') return json_(easyDoc_(p.code));
     if (p.action === 'inspStatus') return json_(inspStatus_());
+    if (p.action === 'contractors') return json_(contractorsData_(p));
     if (p.action === 'inspData') return json_(inspData_(p));
     if (p.action === 'inspRecord') return json_(inspRecord_(p));
     if (p.action === 'prestartPlan') return json_(prestartPlan_(p));
@@ -659,6 +664,9 @@ function doPost(e) {
     if (b.action === 'keyIn') return json_(keyIn_(b));
     if (b.action === 'keyLost') return json_(keyLost_(b));
     if (b.action === 'inspSubmit') return json_(inspSubmit_(b));
+    if (b.action === 'conInduct') return json_(conInduct_(b));
+    if (b.action === 'conIn') return json_(conIn_(b));
+    if (b.action === 'conOut') return json_(conOut_(b));
     if (b.action === 'inspClose') return json_(inspClose_(b));
     if (b.action === 'inspReview') return json_(inspReview_(b));
     if (b.action === 'prestart') return json_(prestart_(b));
@@ -873,6 +881,7 @@ function computeAll_(ctx) {
 function tick() {
   const started = Date.now();
   try { keyCallouts_({ dryRun: false }); } catch (e) { console.error('key callouts failed: ' + e); }
+  try { conCheck_({}); } catch (e) { console.error('contractor check failed: ' + e); }
   const props = PropertiesService.getScriptProperties();
   let changed = false;
   try { changed = syncLibrary_(); } catch (e) { console.error('sync failed: ' + e); }
@@ -2807,7 +2816,8 @@ function inspSubmit_(b) {
   try {
     inspEnsure_();
     const ctx = context_();
-    const st = who_(ctx, b);
+    const wh = inspWho_(ctx, b);
+    const st = wh.st;
     const name = String(st.Name).trim();
     const area = inspArea_(b.site);
     const cfg = inspSettings_();
@@ -2933,7 +2943,7 @@ function inspSubmit_(b) {
     if (dRows.length) def.sh.getRange(def.sh.getLastRow() + 1, 1, dRows.length, def.head.length).setValues(dRows);
 
     inspBust_();
-    try { inspSubmitSlack_(ctx, cfg, { name, area, areaName: mainRow['Area name'], score, yes, no, na, minutes, defs, receipt }); } catch (e) { console.warn('inspection slack: ' + e); }
+    try { inspSubmitSlack_(ctx, cfg, { name, area, areaName: mainRow['Area name'], score, yes, no, na, minutes, defs, receipt, added: wh.added }); } catch (e) { console.warn('inspection slack: ' + e); }
     return { ok: true, receipt, submittedAt: Utilities.formatDate(now, TZ, 'd MMM yyyy, h:mm a'), score, photoError: photoErr || undefined };
   } finally {
     lock.releaseLock();
@@ -2951,8 +2961,9 @@ function inspSubmitSlack_(ctx, cfg, x) {
   if (med || low) lines.push(':large_orange_circle: ' + [med ? med + ' medium' : '', low ? low + ' low' : ''].filter(Boolean).join(' · '));
   const fixed = x.defs.length - open.length;
   if (fixed) lines.push(':white_check_mark: ' + fixed + ' fixed on the spot');
+  if (x.added) lines.push(':new: ' + x.added + ' typed their name in, so they have been added to the Staff tab as a Guest. Check the spelling and add their role.');
   lines.push('<' + cfg.dash + '|Open the dashboard>');
-  if (high.length && cfg.cc.length) lines.push('cc ' + cfg.cc.map(id => '<@' + id + '>').join(' '));
+  if ((high.length || x.added) && cfg.cc.length) lines.push('cc ' + cfg.cc.map(id => '<@' + id + '>').join(' '));
   UrlFetchApp.fetch(cfg.hook, { method: 'post', contentType: 'application/json', payload: JSON.stringify({ text: lines.join('\n'), link_names: true }), muteHttpExceptions: true });
 }
 
@@ -3194,4 +3205,478 @@ function prestartStats_(p) {
   const str = JSON.stringify(out);
   try { if (str.length < 95000) cache.put(ck, str, 600); } catch (e) {}
   return out;
+}
+
+/* =====================================================================
+ * CONTRACTORS (docs/contractors.html)
+ *
+ * Risk-based, per site (WHS Committee, Jun 2026: sign-in AND sign-out for
+ * emergency accountability; induction and documents scaled to the risk).
+ *   Low    delivery, meeting, quote or look only: no tools, plant or work.
+ *          Sign in with the site rules on screen. No induction.
+ *   Medium trades and services using tools or equipment.
+ *          Induction (valid 12 months) + public liability certificate.
+ *   High   any high-risk activity (hot work, digging, height, electrical,
+ *          chemicals, plant, trees, confined space, near water/roads).
+ *          Induction + public liability + licence/ticket + SWMS, and the host
+ *          is tagged in Slack when they sign in.
+ * Tabs:
+ *   Contractors        one row per inducted person (re-induction adds a new row; latest row counts)
+ *   Contractor Visits  every sign-in, with sign-out time
+ * Slack: high-risk sign-ins (host + CON_ALERT_CC tagged), and once a day after
+ * CON_CHECK_AFTER anyone still signed in.
+ * Manual runs: setupContractors, previewContractorCheck.
+ * ===================================================================== */
+
+const CON_TAB = { PEOPLE: 'Contractors', VISITS: 'Contractor Visits' };
+const CON_HEAD = {
+  'Contractors': ['Inducted at', 'Receipt', 'Name', 'Company', 'Phone', 'Email', 'Trade / work', 'Risk level', 'Sites',
+    'Emergency contact', 'Emergency phone', 'PL insurer', 'PL expiry', 'PL certificate', 'WorkCover', 'Licences / tickets', 'Licence photos',
+    'SWMS', 'Induction version', 'Knowledge check', 'Valid until', 'Declaration', 'Signature', 'Device', 'Status', 'Checked by', 'Notes'],
+  'Contractor Visits': ['Signed in', 'Visit ID', 'Name', 'Company', 'Phone', 'Visit type', 'Site', 'Where on site', 'Work', 'Host',
+    'High-risk work', 'SWMS / permit', 'Induction', 'PL insurance', 'Site rules agreed', 'Signed out', 'Signed out by', 'Minutes on site', 'Alerts', 'Notes', 'Device']
+};
+const CON_SITES = {
+  course: 'Ranfurlie: course & maintenance compound',
+  clubhouse: 'Ranfurlie: clubhouse & driving range',
+  amstel: 'The Amstel Club'
+};
+const CON_HIGH_RISK = ['Hot work (welding, cutting, grinding)', 'Digging, trenching or boring', 'Work at height (over 2 m) or on a roof',
+  'Electrical work', 'Applying chemicals or pesticides', 'Operating plant or machinery', 'Tree work or chainsaw',
+  'Confined space', 'Work in or near dams or water', 'Work on or beside roads or the car park'];
+// Induction version and knowledge-check answers (index into each question's options).
+// Keep in step with CON_INDUCTION in docs/contractors.js.
+const CON_INDUCTION_VERSION = 'CI-2026.11-1';
+const CON_QUIZ_ANSWERS = [1, 2, 0, 2, 1, 3, 0, 1];
+const CON_DECLARATION = 'I have read and understood this induction. I will sign in and out every visit, follow the site rules and my SWMS, and stop and ask my host if I am unsure.';
+
+// Manual run: create the contractor tabs and settings, and add the clubhouse managers as Guests.
+function setupContractors() {
+  conEnsure_(true);
+  const added = addGuests_([
+    { name: 'Wayne Hood', role: 'Food & Beverage Manager', site: 'Ranfurlie clubhouse', groups: 'Guest, Clubhouse' },
+    { name: 'Sahil Sahib', role: 'Golf & Membership Manager', site: 'Ranfurlie clubhouse', groups: 'Guest, Clubhouse' }
+  ], 'Added ' + dayKey_(new Date()) + ' for the clubhouse & range monthly inspection');
+  console.log('Contractor tabs ready. Guests added: ' + (added.join(', ') || 'none (already there)'));
+}
+
+// Manual run: show what the end-of-day "still signed in" post would say (posts nothing).
+function previewContractorCheck() {
+  console.log(conCheck_({ dryRun: true, force: true }) || 'Nobody is still signed in.');
+}
+
+function conEnsure_(force) {
+  const props = PropertiesService.getScriptProperties();
+  if (!force && props.getProperty('con_ready') === '1') return;
+  const ss = book_();
+  const when = 'ddd d mmm yy h:mm am/pm';
+  const widths = {
+    'Contractors': [140, 150, 150, 170, 120, 190, 200, 80, 220, 150, 120, 150, 95, 110, 110, 220, 110, 110, 110, 150, 95, 300, 80, 200, 90, 130, 260],
+    'Contractor Visits': [140, 150, 150, 170, 120, 110, 220, 200, 260, 140, 260, 160, 110, 120, 90, 140, 130, 80, 220, 260, 200]
+  };
+  [CON_TAB.PEOPLE, CON_TAB.VISITS].forEach(name => {
+    let sh = ss.getSheetByName(name);
+    if (!sh) {
+      const after = ss.getSheetByName(INSP_TAB.ANS) || ss.getSheetByName(TAB.KEYLOG) || ss.getSheetByName(TAB.REGISTER);
+      sh = ss.insertSheet(name, after ? after.getIndex() : ss.getSheets().length);
+    }
+    if (sh.getLastRow() === 0) {
+      sh.getRange(1, 1, 1, CON_HEAD[name].length).setValues([CON_HEAD[name]]);
+      styleHeader_(sh, CON_HEAD[name].length);
+      (widths[name] || []).forEach((w, j) => sh.setColumnWidth(j + 1, w));
+      const at = h => CON_HEAD[name].indexOf(h) + 1;
+      if (name === CON_TAB.PEOPLE) {
+        sh.getRange(2, at('Inducted at'), 5000, 1).setNumberFormat(when);
+        sh.getRange(2, at('Phone'), 5000, 1).setNumberFormat('@');
+        sh.getRange(2, at('Emergency phone'), 5000, 1).setNumberFormat('@');
+        ['PL expiry', 'Valid until'].forEach(h => sh.getRange(2, at(h), 5000, 1).setNumberFormat('@'));
+        sh.getRange(2, at('Status'), 5000, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['Current', 'Blocked', 'Left'], true).build());
+      } else {
+        ['Signed in', 'Signed out'].forEach(h => sh.getRange(2, at(h), 20000, 1).setNumberFormat(when));
+        sh.getRange(2, at('Phone'), 20000, 1).setNumberFormat('@');
+      }
+    } else {
+      CON_HEAD[name].forEach(h => ensureColumn_(sh, h));
+    }
+  });
+  const s = settings_();
+  const want = [
+    ['CON_PAGE_URL', 'https://andranf.github.io/ranfurlie-safety/contractors.html', 'Contractor sign-in / induction page (linked in Slack)'],
+    ['CON_VALID_MONTHS', 12, 'Contractor induction is valid for this many months'],
+    ['CON_ALERT_CC', '', 'Slack IDs tagged on high-risk sign-ins and the end-of-day check (blank = INSP_ALERT_CC)'],
+    ['CON_CHECK_AFTER', '17:30', 'Time after which anyone still signed in is posted to Slack (once a day)'],
+    ['CON_SLACK_ALL', false, 'TRUE posts every contractor sign-in to Slack, not just high-risk ones'],
+    ['CON_SLACK_WEBHOOK_URL', '', 'Slack webhook for contractor posts (blank = same channel as the inspection posts)'],
+    ['CON_DOCS_FOLDER_ID', '', 'Private Drive folder for insurance certificates, licences and SWMS photos (created on first use)']
+  ];
+  want.forEach(w => { if (!(w[0] in s)) { const sh = sheet_(TAB.SETTINGS); sh.appendRow(w); } });
+  props.setProperty('con_ready', '1');
+}
+
+function conCfg_() {
+  const s = settings_();
+  const ic = inspSettings_();
+  const cc = String(s.CON_ALERT_CC || '').trim() ? String(s.CON_ALERT_CC).split(/[\s,;]+/).filter(x => /^[UW][A-Z0-9]{6,}$/.test(x)) : ic.cc;
+  return {
+    s,
+    page: String(s.CON_PAGE_URL || '').trim() || 'https://andranf.github.io/ranfurlie-safety/contractors.html',
+    months: num_(s.CON_VALID_MONTHS, 12),
+    hook: String(s.CON_SLACK_WEBHOOK_URL || '').trim() || ic.hook,
+    cc,
+    all: bool_(s.CON_SLACK_ALL),
+    after: String(s.CON_CHECK_AFTER || '17:30').trim()
+  };
+}
+
+function conClean_(v, max) { return String(v === undefined || v === null ? '' : v).replace(/[\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max || 200); }
+function conName_(v) {
+  const n = conClean_(v, 60);
+  if (!/^[\p{L}][\p{L} .,'’-]{1,58}[\p{L}.]$/u.test(n) || n.split(' ').filter(Boolean).length < 2) throw new Error('Enter your first and last name.');
+  return n.split(' ').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+function conPhone_(v, label) {
+  const p = conClean_(v, 30);
+  if (p.replace(/\D/g, '').length < 8) throw new Error('Enter a contact phone number' + (label ? ' for ' + label : '') + '.');
+  return p;
+}
+function conSite_(v) { const k = String(v || '').trim(); if (!CON_SITES[k]) throw new Error('Pick the site.'); return k; }
+function conBust_() { try { CacheService.getScriptCache().remove('con:data'); } catch (e) {} }
+
+function conFolder_(s) {
+  let id = String(s.CON_DOCS_FOLDER_ID || '').trim();
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { id = ''; } }
+  let parent = null;
+  try { parent = DriveApp.getFileById(SHEET_ID).getParents().next(); } catch (e) {}
+  const f = parent ? parent.createFolder('Contractor documents') : DriveApp.createFolder('Ranfurlie Contractor Documents');   // private
+  setSetting_('CON_DOCS_FOLDER_ID', f.getId());
+  return f;
+}
+function conSavePhotos_(s, list, label) {
+  const urls = [];
+  (Array.isArray(list) ? list.slice(0, 4) : []).forEach((p, j) => {
+    const m = String(p || '').match(/^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]+)$/);
+    if (!m || m[2].length > 2800000) return;
+    const f = conFolder_(s).createFile(Utilities.newBlob(Utilities.base64Decode(m[2]), 'image/' + m[1],
+      Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HHmm') + ' ' + label + (j ? ' ' + (j + 1) : '') + (m[1] === 'png' ? '.png' : '.jpg')));
+    urls.push(f.getUrl());
+  });
+  return urls;
+}
+function conLinks_(urls) {
+  if (!urls.length) return '';
+  if (urls.length === 1) return '=HYPERLINK("' + urls[0] + '","View")';
+  return urls.join('\n');
+}
+
+// Latest induction row per person (by name), with status.
+function conPeople_(cfg) {
+  const t = read_(CON_TAB.PEOPLE);
+  const today = dayKey_(new Date());
+  const by = {};
+  t.rows.forEach(r => {
+    const k = norm_(r.Name);
+    if (!k) return;
+    const at = r['Inducted at'] instanceof Date ? r['Inducted at'].getTime() : 0;
+    if (!by[k] || at >= by[k]._at) by[k] = Object.assign({ _at: at }, r);
+  });
+  return Object.keys(by).map(k => {
+    const r = by[k];
+    const valid = toKey_(r['Valid until']);
+    const pl = toKey_(r['PL expiry']);
+    const stat = String(r.Status || '').trim();
+    let status = 'Current';
+    if (stat === 'Blocked' || stat === 'Left') status = stat;
+    else if (!valid || valid < today) status = 'Expired';
+    return {
+      name: String(r.Name).trim(), company: String(r.Company || '').trim(), trade: String(r['Trade / work'] || '').trim(),
+      risk: String(r['Risk level'] || '').trim() || 'Medium', inducted: toKey_(r['Inducted at']), validUntil: valid, status,
+      plExpiry: pl, plOk: !!pl && pl >= today, row: r._row, phone: String(r.Phone || '').trim(), sites: String(r.Sites || '').trim()
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function conVisitsOpen_() {
+  const t = read_(CON_TAB.VISITS);
+  return { t, open: t.rows.filter(r => r['Signed in'] instanceof Date && !(r['Signed out'] instanceof Date) && String(r['Visit ID'] || '').trim()) };
+}
+
+// GET action=contractors: public data for the page (no phone numbers or emails).
+function contractorsData_(p) {
+  conEnsure_();
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('con:data');
+  if (hit) return JSON.parse(hit);
+  const cfg = conCfg_();
+  const people = conPeople_(cfg).filter(x => x.status !== 'Left').map(x => ({
+    name: x.name, company: x.company, trade: x.trade, risk: x.risk, inducted: x.inducted, validUntil: x.validUntil, status: x.status, plExpiry: x.plExpiry
+  }));
+  const v = conVisitsOpen_();
+  const onSite = v.open.map(r => ({
+    id: String(r['Visit ID']), name: String(r.Name).trim(), company: String(r.Company || '').trim(), site: String(r.Site || '').trim(),
+    where: String(r['Where on site'] || '').trim(), host: String(r.Host || '').trim(), since: inspIso_(r['Signed in']),
+    high: !!String(r['High-risk work'] || '').trim()
+  })).sort((a, b) => (a.since < b.since ? -1 : 1));
+  const since = new Date(); since.setDate(since.getDate() - 90);
+  const recent = v.t.rows.filter(r => r['Signed in'] instanceof Date && r['Signed in'] >= since).map(r => ({
+    at: inspIso_(r['Signed in']), out: inspIso_(r['Signed out']), name: String(r.Name).trim(), company: String(r.Company || '').trim(),
+    type: String(r['Visit type'] || '').trim(), site: String(r.Site || '').trim(), work: String(r.Work || '').trim().slice(0, 120),
+    host: String(r.Host || '').trim(), high: String(r['High-risk work'] || '').trim(), mins: num_(r['Minutes on site'], '')
+  })).sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 300);
+  const staff = read_(TAB.STAFF).rows.filter(isActive_).map(r => String(r.Name).trim()).sort();
+  const out = { ok: true, people, onSite, recent, staff, sites: CON_SITES, highRisk: CON_HIGH_RISK, induction: CON_INDUCTION_VERSION,
+    validMonths: cfg.months, declaration: CON_DECLARATION, generated: new Date().toISOString() };
+  try { const txt = JSON.stringify(out); if (txt.length < 95000) cache.put('con:data', txt, 60); } catch (e) {}
+  return out;
+}
+
+// POST action=conInduct
+function conInduct_(b) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(28000);
+  try {
+    conEnsure_();
+    const cfg = conCfg_();
+    const name = conName_(b.name);
+    const company = conClean_(b.company, 80);
+    if (company.length < 2) throw new Error('Enter your company name (or "Self-employed").');
+    const phone = conPhone_(b.phone);
+    const email = conClean_(b.email, 100);
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Check the email address.');
+    const trade = conClean_(b.trade, 120);
+    if (trade.length < 3) throw new Error('Tell us what work you do.');
+    const high = (Array.isArray(b.highRisk) ? b.highRisk : []).map(x => conClean_(x, 60)).filter(x => CON_HIGH_RISK.indexOf(x) >= 0);
+    const risk = high.length ? 'High' : 'Medium';
+    const sites = (Array.isArray(b.sites) ? b.sites : []).filter(x => CON_SITES[x]);
+    if (!sites.length) throw new Error('Pick at least one site you work at.');
+    const ecName = conClean_(b.ecName, 60), ecPhone = conPhone_(b.ecPhone, 'your emergency contact');
+    if (ecName.length < 2) throw new Error('Enter an emergency contact name.');
+    const insurer = conClean_(b.plInsurer, 80);
+    const plExp = toKey_(b.plExpiry);
+    const today = dayKey_(new Date());
+    if (!insurer || !plExp) throw new Error('Enter your public liability insurer and expiry date.');
+    if (plExp < today) throw new Error('Your public liability insurance has expired. Talk to your host before starting work.');
+    const plPhotos = Array.isArray(b.plPhotos) ? b.plPhotos : [];
+    if (!plPhotos.length && b.plEmailed !== true) throw new Error('Add a photo of your certificate of currency, or tick that you have emailed it.');
+    const wc = ['Yes', 'No employees', 'No'].indexOf(String(b.workCover)) >= 0 ? String(b.workCover) : '';
+    if (!wc) throw new Error('Answer the WorkCover question.');
+    const lic = conClean_(b.licences, 300);
+    const licPhotos = Array.isArray(b.licPhotos) ? b.licPhotos : [];
+    let swms = '';
+    if (risk === 'High') {
+      if (!lic) throw new Error('List the licences or tickets you hold for the high-risk work.');
+      swms = String(b.swms) === 'each' ? 'Provided for each job' : (String(b.swms) === 'given' ? 'Given to host' : '');
+      if (!swms) throw new Error('High-risk work needs a SWMS. Tell us how you will provide it.');
+    }
+    // Knowledge check
+    const ans = Array.isArray(b.answers) ? b.answers.map(Number) : [];
+    if (String(b.version || '') !== CON_INDUCTION_VERSION) throw new Error('The induction has been updated. Reload the page and go through it again.');
+    if (ans.length !== CON_QUIZ_ANSWERS.length || CON_QUIZ_ANSWERS.some((a, i) => ans[i] !== a)) throw new Error('Finish the knowledge check before signing.');
+    const first = Math.max(0, Math.min(CON_QUIZ_ANSWERS.length, Math.round(num_(b.quizFirstTry, CON_QUIZ_ANSWERS.length))));
+    if (b.declare !== true) throw new Error('Tick the declaration to finish.');
+
+    const now = new Date();
+    const valid = addMonths_(today, cfg.months);
+    const receipt = 'CON-' + Utilities.formatDate(now, TZ, 'yyMMdd') + '-' + sha_(name + '|' + company + '|' + now.getTime()).slice(0, 6).toUpperCase();
+    const sig = inspSigFile_(cfg.s, b.signature, name + ' Contractor induction ' + receipt);
+    const plUrls = conSavePhotos_(cfg.s, plPhotos, name + ' PL certificate');
+    const licUrls = conSavePhotos_(cfg.s, licPhotos, name + ' licence');
+    const t = read_(CON_TAB.PEOPLE);
+    const row = {
+      'Inducted at': now, 'Receipt': receipt, 'Name': name, 'Company': company, 'Phone': phone, 'Email': email, 'Trade / work': trade,
+      'Risk level': risk, 'Sites': sites.map(x => CON_SITES[x]).join('\n'), 'Emergency contact': ecName, 'Emergency phone': ecPhone,
+      'PL insurer': insurer, 'PL expiry': plExp, 'PL certificate': plUrls.length ? conLinks_(plUrls) : (b.plEmailed === true ? 'Emailed' : ''),
+      'WorkCover': wc, 'Licences / tickets': lic + (high.length ? '\nHigh-risk work: ' + high.join('; ') : ''), 'Licence photos': conLinks_(licUrls),
+      'SWMS': swms || 'Not required (no high-risk work)', 'Induction version': CON_INDUCTION_VERSION,
+      'Knowledge check': 'Passed ' + CON_QUIZ_ANSWERS.length + '/' + CON_QUIZ_ANSWERS.length + ' - ' + first + ' right first time',
+      'Valid until': valid, 'Declaration': CON_DECLARATION, 'Signature': '=HYPERLINK("' + sig.getUrl() + '","View")',
+      'Device': conClean_(b.ua, 160), 'Status': 'Current'
+    };
+    t.sh.appendRow(t.head.map(h => (h in row ? row[h] : '')));
+    conBust_();
+    try {
+      if (cfg.hook) {
+        const lines = [':construction_worker: *Contractor inducted:* ' + name + ' (' + company + ') · ' + trade + ' · *' + risk + ' risk*',
+          'PL insurance to ' + short_(plExp) + ' · WorkCover: ' + wc + (high.length ? ' · High-risk: ' + high.join(', ') : '') + ' · valid to ' + short_(valid)];
+        if (!plUrls.length) lines.push(':warning: Certificate of currency to come by email - check it has arrived.');
+        UrlFetchApp.fetch(cfg.hook, { method: 'post', contentType: 'application/json', payload: JSON.stringify({ text: lines.join('\n'), link_names: true }), muteHttpExceptions: true });
+      }
+    } catch (e) { console.warn('contractor slack: ' + e); }
+    return { ok: true, receipt, name, validUntil: valid, risk };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// POST action=conIn
+function conIn_(b) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(28000);
+  try {
+    conEnsure_();
+    const cfg = conCfg_();
+    const today = dayKey_(new Date());
+    const type = String(b.type) === 'visit' ? 'visit' : 'work';
+    const site = conSite_(b.site);
+    const name = conName_(b.name);
+    const v = conVisitsOpen_();
+    const dup = v.open.find(r => norm_(r.Name) === norm_(name) && toKey_(r['Signed in']) === today);
+    if (dup) return { ok: true, already: true, id: String(dup['Visit ID']), since: inspIso_(dup['Signed in']), name, site: String(dup.Site || '') };
+    let company = conClean_(b.company, 80);
+    let phone = conClean_(b.phone, 30);
+    const where = conClean_(b.where, 120);
+    const work = conClean_(b.work, 300);
+    const host = conClean_(b.host, 60);
+    if (host.length < 2) throw new Error('Who are you here to see? Pick your host.');
+    if (b.rules !== true) throw new Error('Tick that you have read the site rules.');
+    let induction = 'Not needed (visit)', pl = '', high = [], swms = '', alerts = [];
+    if (type === 'work') {
+      const p = conPeople_(cfg).find(x => norm_(x.name) === norm_(name));
+      if (!p) throw new Error('No induction on file for ' + name + '. Do the contractor induction first (takes about 10 minutes).');
+      if (p.status === 'Blocked') throw new Error('You can\'t sign in to work. Please see your host.');
+      if (p.status === 'Expired') throw new Error('Your induction expired on ' + short_(p.validUntil) + '. Do the induction again before starting work.');
+      company = company || p.company;
+      phone = phone || p.phone;
+      induction = 'Current to ' + short_(p.validUntil);
+      pl = p.plExpiry ? (p.plOk ? 'Current to ' + short_(p.plExpiry) : 'EXPIRED ' + short_(p.plExpiry)) : 'Not on file';
+      if (!p.plOk) alerts.push('Public liability insurance ' + (p.plExpiry ? 'expired ' + short_(p.plExpiry) : 'not on file'));
+      if (work.length < 3) throw new Error('Tell us what work you are doing today.');
+      high = (Array.isArray(b.highRisk) ? b.highRisk : []).map(x => conClean_(x, 60)).filter(x => CON_HIGH_RISK.indexOf(x) >= 0);
+      if (high.length) {
+        swms = String(b.swms) === 'given' ? 'Given to host' : (String(b.swms) === 'onsite' ? 'On site with the crew' : '');
+        if (!swms) throw new Error('High-risk work needs a SWMS before you start. Give it to your host, then sign in.');
+        if (high.indexOf('Hot work (welding, cutting, grinding)') >= 0) alerts.push('Hot work - permit and fire watch needed; not outdoors on a Total Fire Ban day');
+        if (high.indexOf('Digging, trenching or boring') >= 0) alerts.push('Digging - irrigation, drainage and cables to be located and marked first');
+      }
+    } else {
+      if (company.length < 2) company = company || 'Visitor';
+    }
+    if (String(phone).replace(/\D/g, '').length < 8) throw new Error('Enter a mobile number so we can reach you in an emergency.');
+    const now = new Date();
+    const id = 'V-' + Utilities.formatDate(now, TZ, 'yyMMdd-HHmm') + '-' + sha_(name + '|' + now.getTime()).slice(0, 4).toUpperCase();
+    const row = {
+      'Signed in': now, 'Visit ID': id, 'Name': name, 'Company': company, 'Phone': phone, 'Visit type': type === 'visit' ? 'Visit / delivery' : 'Work',
+      'Site': CON_SITES[site], 'Where on site': where, 'Work': work, 'Host': host, 'High-risk work': high.join('; '), 'SWMS / permit': swms,
+      'Induction': induction, 'PL insurance': pl, 'Site rules agreed': 'Yes', 'Alerts': alerts.join('\n'), 'Device': conClean_(b.ua, 160)
+    };
+    v.t.sh.appendRow(v.t.head.map(h => (h in row ? row[h] : '')));
+    conBust_();
+    try {
+      if (cfg.hook && (high.length || alerts.length || cfg.all)) {
+        const ctx = { staff: read_(TAB.STAFF).rows };
+        const hostSt = ctx.staff.find(r => norm_(r.Name) === norm_(host));
+        const hostTag = hostSt ? slackName_(ctx, String(hostSt.Name).trim()) : host;
+        const lines = [(high.length ? ':warning: *High-risk contractor work signed in* · ' : ':construction_worker: *Contractor signed in* · ') + CON_SITES[site],
+          name + ' (' + company + ')' + (work ? ' · ' + work.slice(0, 120) : '') + (where ? ' · ' + where : '') + ' · host ' + hostTag];
+        if (high.length) lines.push('High-risk: ' + high.join(', ') + ' · SWMS: ' + swms);
+        alerts.forEach(a => lines.push(':red_circle: ' + a));
+        if ((high.length || alerts.length) && cfg.cc.length) lines.push('cc ' + cfg.cc.map(x => '<@' + x + '>').join(' '));
+        UrlFetchApp.fetch(cfg.hook, { method: 'post', contentType: 'application/json', payload: JSON.stringify({ text: lines.join('\n'), link_names: true }), muteHttpExceptions: true });
+      }
+    } catch (e) { console.warn('contractor sign-in slack: ' + e); }
+    return { ok: true, id, since: now.toISOString(), name, site: CON_SITES[site], alerts };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// POST action=conOut
+function conOut_(b) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(28000);
+  try {
+    conEnsure_();
+    const id = conClean_(b.id, 40);
+    const v = conVisitsOpen_();
+    const r = v.open.find(x => String(x['Visit ID']) === id);
+    if (!r) {
+      const done = v.t.rows.find(x => String(x['Visit ID']) === id);
+      if (done) return { ok: true, already: true };
+      throw new Error('That sign-in wasn\'t found. Reload the page.');
+    }
+    const now = new Date();
+    const by = conClean_(b.by, 60);
+    writeRow_(v.t, r._row, {
+      'Signed out': now, 'Signed out by': by && norm_(by) !== norm_(r.Name) ? by : 'Self',
+      'Minutes on site': Math.max(1, Math.round((now - r['Signed in']) / 60000))
+    });
+    conBust_();
+    return { ok: true, name: String(r.Name).trim(), at: now.toISOString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// From tick(): once a day after CON_CHECK_AFTER, post anyone still signed in.
+function conCheck_(opt) {
+  opt = opt || {};
+  if (!book_().getSheetByName(CON_TAB.VISITS)) return '';
+  const cfg = conCfg_();
+  const now = new Date();
+  const today = dayKey_(now);
+  const props = PropertiesService.getScriptProperties();
+  const hm = Utilities.formatDate(now, TZ, 'HH:mm');
+  if (!opt.force && (hm < cfg.after || props.getProperty('con:check') === today)) return '';
+  const v = conVisitsOpen_();
+  const list = v.open.filter(r => r['Signed in'] <= now);
+  if (!opt.dryRun) props.setProperty('con:check', today);
+  if (!list.length) return '';
+  const ctx = { staff: read_(TAB.STAFF).rows };
+  const lines = [':bust_in_silhouette: *Still signed in on site* - check they have left, then sign them out (emergency roll call relies on it):'];
+  list.slice(0, 15).forEach(r => {
+    const hostSt = ctx.staff.find(x => norm_(x.Name) === norm_(r.Host));
+    lines.push('• ' + String(r.Name).trim() + ' (' + String(r.Company || '').trim() + ') · ' + String(r.Site || '').trim() + ' · in ' +
+      Utilities.formatDate(r['Signed in'], TZ, toKey_(r['Signed in']) === today ? 'h:mm a' : 'EEE d MMM h:mm a') + ' · host ' + (hostSt ? slackName_(ctx, String(hostSt.Name).trim()) : String(r.Host || '')));
+  });
+  if (list.length > 15) lines.push('…and ' + (list.length - 15) + ' more');
+  lines.push('<' + cfg.page + '?out|Sign someone out>');
+  const text = lines.join('\n');
+  if (!opt.dryRun && cfg.hook) UrlFetchApp.fetch(cfg.hook, { method: 'post', contentType: 'application/json', payload: JSON.stringify({ text, link_names: true }), muteHttpExceptions: true });
+  return text;
+}
+
+/* ----------------------------------------------- guests & new inspectors */
+
+// Add people to the Staff tab as Guests (no SWPs, never tagged). Returns the names added.
+function addGuests_(list, note) {
+  const t = read_(TAB.STAFF);
+  const have = {};
+  t.rows.forEach(r => { have[norm_(r.Name)] = r; });
+  const added = [];
+  list.forEach(p => {
+    const k = norm_(p.name);
+    if (!k) return;
+    if (have[k]) {
+      if (!isActive_(have[k])) writeRow_(t, have[k]._row, { Active: true });
+      return;
+    }
+    const row = { 'Name': p.name, 'Role': p.role || '', 'Site': p.site || '', 'Groups': p.groups || 'Guest', 'Active': true,
+      'Start date': dayKey_(new Date()), 'Notes': note || '' };
+    t.sh.appendRow(t.head.map(h => (h in row ? row[h] : '')));
+    have[k] = row;
+    added.push(p.name);
+  });
+  if (added.length) { try { CacheService.getScriptCache().removeAll(['library', 'con:data']); } catch (e) {} PropertiesService.getScriptProperties().setProperty('dirty', '1'); }
+  return added;
+}
+
+// Inspection sign-off: a name on the Staff tab, or (clubhouse / Amstel lists) a new name typed in,
+// which is added as a Guest so it shows in the list next time. Returns { st, added }.
+function inspWho_(ctx, b) {
+  try { return { st: who_(ctx, b), added: '' }; } catch (e) {
+    const typed = String(b.newName || '').trim();
+    if (!typed) throw e;
+  }
+  const name = conName_(b.newName);
+  const area = String(b.site || '').trim().toLowerCase();
+  if (area === 'compound') throw new Error('Pick your name from the list. Not there? See Andrew or Ben.');
+  const hit = ctx.staff.find(r => norm_(r.Name) === norm_(name));
+  if (hit) {
+    if (!isActive_(hit)) { const t = read_(TAB.STAFF); writeRow_(t, hit._row, { Active: true }); hit.Active = true; }
+    return { st: hit, added: '' };
+  }
+  addGuests_([{ name, site: INSP_AREAS[area] || '', groups: 'Guest' + (area === 'clubhouse' ? ', Clubhouse' : area === 'amstel' ? ', Amstel' : '') }],
+    'Added from the ' + (INSP_AREAS[area] || area) + ' inspection page ' + dayKey_(new Date()) + ' - check name and role');
+  const st = read_(TAB.STAFF).rows.find(r => norm_(r.Name) === norm_(name));
+  ctx.staff = read_(TAB.STAFF).rows;
+  return { st, added: name };
 }
