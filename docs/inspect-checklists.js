@@ -37,7 +37,7 @@ window.INSPECT_CHECKLISTS = {
     id: 'compound',
     name: 'Maintenance compound',
     sub: 'Sheds, workshop, chemical shed, fuel bay, wash-down bay, lunchroom, compound, car park and the course lightning shelters',
-    version: '2026.11-1',
+    version: '2026.11-2',
     everyDays: 31,
     sections: [
 
@@ -129,8 +129,10 @@ window.INSPECT_CHECKLISTS = {
           { id: 'B1', text: 'Smoke alarms in offices and lunchroom: press the test button, alarm sounds; alarms mounted, not loose' },
           { id: 'B2', text: 'Fire blanket in shed kitchen present, in holder, signed' },
           { id: 'B3', text: 'Fire hydrant / hose reel at the compound signed, 1 m clear of shrubs and stock, no leaks' },
-          { id: 'B4', text: 'Lithium-ion extinguisher and battery storage cabinet installed at the charging area', noNA: true,
-            sub: 'Open RCW 2026 audit item. Answer No until both are in.' },
+          { id: 'B4', text: 'Battery charging area: nothing combustible stacked near the chargers, manufacturer’s chargers only, a hose reaches it and machines can be driven or towed straight outside', noNA: true,
+            sub: 'Lithium-ion fires: extinguishers don’t stop them (fire contractor, Nov 2026; CFA won’t sell or service lithium-ion extinguishers). The control is distance and water.' },
+          { id: 'B4b', text: 'Lithium-ion fire response sign posted at the charging area', noNA: true,
+            sub: 'Hot, swelling or hissing: unplug and move it outside, clear of buildings and fuel, only if safe. Smoking or alight: don’t touch it, clear the area, stay upwind, call 000 and say lithium-ion; water from a distance to keep things cool.' },
           { id: 'B5', text: 'Nothing stacked in front of or hanging on fire equipment' },
           { id: 'B6', text: 'Extinguishers on plant (excavator, tractors, spray units): present, gauge in the green, tag within 6 months',
             sub: 'Diamond (Mar 2025) found the excavator extinguisher overdue' }
