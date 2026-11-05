@@ -189,7 +189,8 @@
     var siteBox = el('div', { class: 'sites three' });
     var more = el('div');
     var err = el('p', { class: 'err', role: 'alert' });
-    var btn = el('button', { type: 'button', class: 'btn primary wide', text: 'Sign in', disabled: true });
+    var need = el('div', { class: 'need', 'aria-live': 'polite' });
+    var btn = el('button', { type: 'button', class: 'btn primary wide', text: 'Sign in' });
 
     function types() {
       typeBox.innerHTML = '';
@@ -219,8 +220,31 @@
       return p;
     }
     var f = {};
+    function snap() {
+      var s = { high: st.high.slice() };
+      ['company', 'phone', 'work', 'where', 'hostOther'].forEach(function (k) { if (f[k]) s[k] = f[k].value; });
+      if (f.host) s.host = f.host.value;
+      if (f.rules) s.rules = f.rules.checked;
+      var sw = more.querySelector('input[name=swms]:checked'); if (sw) s.swms = sw.value;
+      return s;
+    }
+    function restore(s) {
+      ['company', 'phone', 'work', 'where', 'hostOther'].forEach(function (k) { if (f[k] && s[k] !== undefined) f[k].value = s[k]; });
+      if (f.host && s.host !== undefined) { f.host.value = s.host; f.hostOther.hidden = s.host !== '__other'; }
+      if (f.rules && s.rules) f.rules.checked = true;
+      if (st.type === 'work' && s.high.length) {
+        more.querySelectorAll('.checks input[type=checkbox]').forEach(function (cb) { if (s.high.indexOf(cb.value) >= 0) cb.checked = true; });
+        st.high = s.high.filter(function (h) { return D.highRisk.indexOf(h) >= 0; });
+        var box = more.querySelector('.swms'); if (box) box.hidden = !st.high.length;
+        if (s.swms) { var r = more.querySelector('input[name=swms][value=' + s.swms + ']'); if (r) r.checked = true; }
+      }
+    }
+    var pKey = '';
+    function personKey() { var p = personOf(name.value); return p ? p.name + '|' + p.status : ''; }
     function fill() {
+      var kept = snap();
       more.innerHTML = '';
+      pKey = personKey();
       var p = who();
       if (!st.type || !st.site) { ready(); return; }
       if (st.type === 'visit' || !p) {
@@ -265,25 +289,64 @@
         el('ul', {}, ['Call **000** in an emergency, then your host'].concat(info.rules).concat(['Sign out before you leave']).map(function (r) { return el('li', {}, md(r)); })),
         el('label', { class: 'check strong' }, [f.rules, el('span', { text: 'I have read the site rules and will follow them' })])
       ]));
-      more.querySelectorAll('input,textarea,select').forEach(function (x) { x.addEventListener('input', ready); });
+      more.querySelectorAll('input,textarea,select').forEach(function (x) { x.addEventListener('input', ready); x.addEventListener('change', ready); });
+      restore(kept);
       ready();
     }
     function radio(group, val, text) {
       return el('label', { class: 'check' }, [el('input', { type: 'radio', name: group, value: val, onchange: ready }), el('span', { text: text })]);
     }
     function hostVal() { return f.host ? (f.host.value === '__other' ? f.hostOther.value.trim() : f.host.value) : ''; }
-    function ready() {
+    function missing() {
       var p = personOf(name.value);
-      var ok = name.value.trim().split(/\s+/).length >= 2 && st.type && st.site && f.rules && f.rules.checked && hostVal().length > 1 &&
-        f.phone && (f.phone.value.replace(/\D/g, '').length >= 8 || (st.type === 'work' && p)) && f.work && f.work.value.trim().length > 2;
-      if (st.type === 'work' && !(p && p.status === 'Current')) ok = false;
-      if (st.type === 'work' && st.high.length && !document.querySelector('input[name=swms]:checked')) ok = false;
-      if (st.type === 'visit' && !(f.company && f.company.value.trim().length > 1)) ok = false;
-      btn.disabled = !ok;
+      if (name.value.trim().split(/\s+/).length < 2) return { msg: 'Enter your first and last name.', at: name };
+      if (!st.type) return { msg: 'Choose why you’re here: doing work, or a delivery or visit.', at: typeBox };
+      if (!st.site) return { msg: 'Choose which site you’re at.', at: siteBox };
+      if (st.type === 'work' && !(p && p.status === 'Current')) return { induct: true, msg: p && p.status === 'Expired'
+        ? 'Your induction expired ' + fmtDate(p.validUntil) + '. Do it again before signing in to work.'
+        : 'Doing work on site needs the contractor induction first. It’s once a year and takes about 10 minutes.' };
+      if (st.type === 'visit' && !(f.company && f.company.value.trim().length > 1)) return { msg: 'Enter your company.', at: f.company };
+      if (!(f.phone && (f.phone.value.replace(/\D/g, '').length >= 8 || (st.type === 'work' && p)))) return { msg: 'Enter your mobile number.', at: f.phone };
+      if (!(f.work && f.work.value.trim().length > 2)) return { msg: st.type === 'work' ? 'Say what you’re doing today.' : 'Enter the reason for your visit.', at: f.work };
+      if (hostVal().length < 2) return { msg: 'Choose who you’re here to see.', at: f.host.value === '__other' ? f.hostOther : f.host };
+      if (st.type === 'work' && st.high.length && !more.querySelector('input[name=swms]:checked')) return { msg: 'Tell us where the SWMS is for today’s high-risk work.', at: more.querySelector('.swms') };
+      if (!(f.rules && f.rules.checked)) return { msg: 'Tick that you’ve read the site rules.', at: f.rules };
+      return null;
     }
-    name.addEventListener('input', function () { fill(); });
+    function goInduct() {
+      I.local.set(LS.name, name.value.trim());
+      if (f.phone && f.phone.value.trim()) I.local.set(LS.phone, f.phone.value.trim());
+      if (f.company && f.company.value.trim()) I.local.set(LS.company, f.company.value.trim());
+      history.replaceState(null, '', '?induct' + (siteHint ? '&site=' + siteHint : ''));
+      go('induct');
+    }
+    function ready() {
+      var m = missing();
+      btn.classList.toggle('not-ready', !!m);
+      if (!m || (err.textContent && err.textContent !== m.msg)) err.textContent = '';
+      need.innerHTML = '';
+      need.className = 'need';
+      if (m && m.induct) {
+        need.classList.add('induct');
+        need.append(el('p', { text: m.msg }), el('button', { type: 'button', class: 'btn primary wide', text: 'Do the induction now', onclick: goInduct }));
+      }
+      return m;
+    }
+    function showMissing(m) {
+      if (m.induct) { need.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+      err.textContent = m.msg;
+      if (m.at) {
+        m.at.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (/^(INPUT|TEXTAREA|SELECT)$/.test(m.at.tagName) && m.at.type !== 'checkbox') setTimeout(function () { m.at.focus({ preventScroll: true }); }, 350);
+        var box = m.at.closest ? (m.at.closest('.field, .rules, .sites') || m.at) : m.at;
+        box.classList.remove('flag'); void box.offsetWidth; box.classList.add('flag');
+      }
+    }
+    name.addEventListener('input', function () { if (personKey() !== pKey) fill(); else { who(); ready(); } });
     btn.onclick = function () {
       err.textContent = '';
+      var m = ready();
+      if (m) return showMissing(m);
       btn.disabled = true; btn.textContent = 'Signing in…';
       var sw = document.querySelector('input[name=swms]:checked');
       body = { action: 'conIn', type: st.type, site: st.site, name: name.value.trim(), company: f.company ? f.company.value.trim() : '', phone: f.phone.value.trim(),
@@ -314,7 +377,7 @@
       field('Your name', el('div', {}, [name, dl, status])),
       el('label', { text: 'Why are you here?' }), typeBox,
       el('label', { text: 'Which site?' }), siteBox,
-      more, err, btn
+      more, need, err, btn
     ])]);
     if (st.site) setAddr(st.site);
     types(); sites(); fill();
@@ -400,6 +463,8 @@
     function step0() {
       var d = S.d;
       if (!d.name && I.local.get(LS.name)) d.name = I.local.get(LS.name);
+      if (!d.company && I.local.get(LS.company)) d.company = I.local.get(LS.company);
+      if (!d.phone && I.local.get(LS.phone)) d.phone = I.local.get(LS.phone);
       var hr = el('div', { class: 'checks' });
       D.highRisk.forEach(function (h) {
         var cb = el('input', { type: 'checkbox', value: h, checked: S.high.indexOf(h) >= 0, onchange: function () { S.high = Array.prototype.slice.call(hr.querySelectorAll('input:checked')).map(function (x) { return x.value; }); } });
