@@ -103,8 +103,11 @@
     return out;
   }
   function notice(msg) { var n = $('notice'); n.textContent = msg; n.hidden = !msg; }
-  function field(label, input, sub) {
-    var kids = [el('label', { text: label })];
+  function req() { return el('span', { class: 'req', title: 'Required', 'aria-label': 'required', text: '*' }); }
+  function reqNote() { return el('p', { class: 'req-note' }, [req(), ' Required']); }
+  function rl(text) { return el('label', {}, [text, req()]); }
+  function field(label, input, sub, required) {
+    var kids = [el('label', {}, [label, required ? req() : null])];
     if (sub) kids.push(el('div', { class: 'f-sub', text: sub }));
     kids.push(input);
     return el('div', { class: 'field' }, kids);
@@ -249,21 +252,21 @@
       if (!st.type || !st.site) { ready(); return; }
       if (st.type === 'visit' || !p) {
         f.company = input({ placeholder: 'Company', value: (p && p.company) || I.local.get(LS.company) || '' });
-        more.appendChild(field('Company', f.company));
+        more.appendChild(field('Company', f.company, null, st.type === 'visit'));
       } else f.company = null;
       f.phone = input({ type: 'tel', inputmode: 'tel', placeholder: 'Mobile', value: I.local.get(LS.phone) || '' });
-      more.appendChild(field('Mobile number', f.phone, 'So we can reach you in an emergency'));
+      more.appendChild(field('Mobile number', f.phone, 'So we can reach you in an emergency', !(st.type === 'work' && p)));
       if (st.type === 'work') {
         f.work = el('textarea', { rows: 2, placeholder: 'e.g. Service the pump station switchboard' });
-        more.appendChild(field('What are you doing today?', f.work));
+        more.appendChild(field('What are you doing today?', f.work, null, true));
         f.where = input({ placeholder: st.site === 'course' ? 'e.g. Pump shed, 7th hole, workshop' : 'e.g. Kitchen, range, function room' });
         more.appendChild(field('Where on site?', f.where));
-      } else { f.work = input({ placeholder: 'e.g. Parts delivery, quote, meeting' }); more.appendChild(field('Reason for visit', f.work)); f.where = null; }
+      } else { f.work = input({ placeholder: 'e.g. Parts delivery, quote, meeting' }); more.appendChild(field('Reason for visit', f.work, null, true)); f.where = null; }
       // host
       f.host = el('select', {}, [el('option', { value: '', text: 'Choose…' })].concat((D.staff || []).map(function (n) { return el('option', { value: n, text: n }); })).concat([el('option', { value: '__other', text: 'Someone else…' })]));
       f.hostOther = input({ placeholder: 'Their name', hidden: true });
       f.host.onchange = function () { f.hostOther.hidden = f.host.value !== '__other'; ready(); };
-      more.appendChild(field('Who are you here to see?', el('div', {}, [f.host, f.hostOther])));
+      more.appendChild(field('Who are you here to see?', el('div', {}, [f.host, f.hostOther]), null, true));
       // high risk
       if (st.type === 'work') {
         var hr = el('div', { class: 'checks' });
@@ -274,7 +277,7 @@
         });
         more.appendChild(field('Any high-risk work today?', hr, 'Tick all that apply. None? Leave them all blank.'));
         var swmsBox = el('div', { class: 'field swms', hidden: true }, [
-          el('label', { text: 'SWMS for today’s high-risk work' }),
+          rl('SWMS for today’s high-risk work'),
           radio('swms', 'given', 'I’ve given it to my host'),
           radio('swms', 'onsite', 'It’s on site with my crew and my host has seen it'),
           el('div', { class: 'f-sub warnline', text: 'No SWMS? Don’t start the high-risk work – talk to your host.' })
@@ -287,7 +290,7 @@
       more.appendChild(el('div', { class: 'rules anim-in' }, [
         el('div', { class: 'rules-h', text: 'Site rules – ' + D.sites[st.site] }),
         el('ul', {}, ['Call **000** in an emergency, then your host'].concat(info.rules).concat(['Sign out before you leave']).map(function (r) { return el('li', {}, md(r)); })),
-        el('label', { class: 'check strong' }, [f.rules, el('span', { text: 'I have read the site rules and will follow them' })])
+        el('label', { class: 'check strong' }, [f.rules, el('span', {}, ['I have read the site rules and will follow them', req()])])
       ]));
       more.querySelectorAll('input,textarea,select').forEach(function (x) { x.addEventListener('input', ready); x.addEventListener('change', ready); });
       restore(kept);
@@ -373,10 +376,10 @@
     }
     var body;
     render([back(), el('div', { class: 'card anim-in' }, [
-      el('h2', { text: 'Sign in' }),
-      field('Your name', el('div', {}, [name, dl, status])),
-      el('label', { text: 'Why are you here?' }), typeBox,
-      el('label', { text: 'Which site?' }), siteBox,
+      el('h2', { text: 'Sign in' }), reqNote(),
+      field('Your name', el('div', {}, [name, dl, status]), null, true),
+      rl('Why are you here?'), typeBox,
+      rl('Which site?'), siteBox,
       more, need, err, btn
     ])]);
     if (st.site) setAddr(st.site);
@@ -475,14 +478,15 @@
         sb.appendChild(el('label', { class: 'check' }, [el('input', { type: 'checkbox', value: k, checked: S.sites.indexOf(k) >= 0, onchange: function () { S.sites = Array.prototype.slice.call(sb.querySelectorAll('input:checked')).map(function (x) { return x.value; }); } }), el('span', { text: D.sites[k] })]));
       });
       return [
-        field('Your name', inp('name', { autocomplete: 'name', placeholder: 'First and last name' })),
-        field('Company', inp('company', { autocomplete: 'organization', placeholder: 'Or “Self-employed”' })),
-        field('Mobile', inp('phone', { type: 'tel', inputmode: 'tel', autocomplete: 'tel' })),
+        reqNote(),
+        field('Your name', inp('name', { autocomplete: 'name', placeholder: 'First and last name' }), null, true),
+        field('Company', inp('company', { autocomplete: 'organization', placeholder: 'Or “Self-employed”' }), null, true),
+        field('Mobile', inp('phone', { type: 'tel', inputmode: 'tel', autocomplete: 'tel' }), null, true),
         field('Email', inp('email', { type: 'email', inputmode: 'email', autocomplete: 'email', placeholder: 'Optional' })),
-        field('What work do you do?', inp('trade', { placeholder: 'e.g. Electrician, irrigation tech, arborist, fencing' })),
-        field('Which sites do you work at?', sb),
+        field('What work do you do?', inp('trade', { placeholder: 'e.g. Electrician, irrigation tech, arborist, fencing' }), null, true),
+        field('Which sites do you work at?', sb, null, true),
         field('Does your work include any of these?', hr, 'Tick any that you do at our sites. These are high-risk and need a licence or ticket and a SWMS.'),
-        el('div', { class: 'grid2' }, [field('Emergency contact', inp('ecName', { placeholder: 'Name' })), field('Their phone', inp('ecPhone', { type: 'tel', inputmode: 'tel' }))])
+        el('div', { class: 'grid2' }, [field('Emergency contact', inp('ecName', { placeholder: 'Name' }), null, true), field('Their phone', inp('ecPhone', { type: 'tel', inputmode: 'tel' }), null, true)])
       ];
     }
     function check0() {
@@ -503,17 +507,18 @@
       var emailed = el('label', { class: 'check' }, [el('input', { type: 'checkbox', checked: !!S.d.plEmailed, onchange: function (e) { S.d.plEmailed = e.target.checked; } }), el('span', { text: 'I’ve emailed it to the Club instead' })]);
       var kids = [
         el('p', { class: 'muted', text: 'Public liability insurance is needed for any work on site. A photo of the certificate of currency is fine.' }),
-        field('Public liability insurer', inp('plInsurer', { placeholder: 'e.g. QBE, Allianz, CGU' })),
-        field('Policy expiry date', inp('plExpiry', { type: 'date' })),
-        field('Certificate of currency', el('div', {}, [photoPicker(S.pl, 'Certificate of currency'), emailed])),
-        field('WorkCover', wc, 'If you employ workers you need WorkCover insurance in Victoria.')
+        reqNote(),
+        field('Public liability insurer', inp('plInsurer', { placeholder: 'e.g. QBE, Allianz, CGU' }), null, true),
+        field('Policy expiry date', inp('plExpiry', { type: 'date' }), null, true),
+        field('Certificate of currency', el('div', {}, [photoPicker(S.pl, 'Certificate of currency'), emailed]), 'A photo, or tick that you’ve emailed it', true),
+        field('WorkCover', wc, 'If you employ workers you need WorkCover insurance in Victoria.', true)
       ];
       if (high) {
-        kids.push(field('Licences and tickets', el('textarea', { rows: 3, placeholder: 'e.g. A-grade electrical licence REC 12345; HRWL forklift; ACUP; chainsaw', oninput: function (e) { S.d.lic = e.target.value; } }, [S.d.lic || '']), 'Needed for the high-risk work you ticked'));
+        kids.push(field('Licences and tickets', el('textarea', { rows: 3, placeholder: 'e.g. A-grade electrical licence REC 12345; HRWL forklift; ACUP; chainsaw', oninput: function (e) { S.d.lic = e.target.value; } }, [S.d.lic || '']), 'Needed for the high-risk work you ticked', true));
         kids.push(field('Photo of licences / tickets', photoPicker(S.lic, 'Licence')));
         kids.push(field('SWMS', el('div', { class: 'checks' }, [['each', 'I’ll give my host a SWMS for each high-risk job before I start'], ['given', 'I’ve already given my SWMS to the Club']].map(function (o) {
           return el('label', { class: 'check' }, [el('input', { type: 'radio', name: 'swmsI', value: o[0], checked: S.d.swms === o[0], onchange: function () { S.d.swms = o[0]; } }), el('span', { text: o[1] })]);
-        })), 'High-risk work needs a Safe Work Method Statement before it starts'));
+        })), 'High-risk work needs a Safe Work Method Statement before it starts', true));
       } else {
         kids.push(field('Licences and tickets', el('textarea', { rows: 2, placeholder: 'Optional – any that apply to your work', oninput: function (e) { S.d.lic = e.target.value; } }, [S.d.lic || ''])));
       }
@@ -582,8 +587,8 @@
           el('div', { html: '<strong>' + I.esc(S.d.name) + '</strong> · ' + I.esc(S.d.company) }),
           el('div', { class: 'muted', text: S.d.trade + ' · ' + (S.high.length ? 'High risk' : 'Medium risk') + ' · valid ' + (D.validMonths || 12) + ' months' })
         ]),
-        el('label', { class: 'check strong' }, [dec, el('span', { text: D.declaration })]),
-        el('label', { text: 'Signature' }),
+        el('label', { class: 'check strong' }, [dec, el('span', {}, [D.declaration, req()])]),
+        rl('Signature'),
         el('div', { class: 'sig-wrap' }, [canvas, hint, el('button', { type: 'button', class: 'link-btn sig-clear', text: 'Clear', onclick: function () { pad.clear(); } })])
       ];
       setTimeout(function () { pad = I.SigPad(canvas, hint, function () {}); }, 30);
