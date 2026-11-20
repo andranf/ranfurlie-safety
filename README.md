@@ -63,7 +63,7 @@ Files dropped outside the Library (e.g. the Ranfurlie Safety folder itself) are 
 
 ## Updating the backend
 
-Copy `backend/Code.gs` into the sheet's Apps Script editor, save, then **Deploy > Manage deployments > Edit > New version** so the web app URL stays the same.
+Copy `backend/Code.gs` and `backend/Chem.gs` into the sheet's Apps Script editor, save, then **Deploy > Manage deployments > Edit > New version** so the web app URL stays the same.
 
 ## Source documents
 
@@ -102,6 +102,16 @@ Dashboard: https://andranf.github.io/ranfurlie-safety/inspection-dashboard.html
 - **Dashboard:** last inspection and next due, score trend, pass rate by section, repeat failures, expiries & service dates, defect register with close-out (name, what was done, signature), inspection history (full record with photos, print, *Review & sign*), N/A register, CSV export. Flags inspections with under 15 minutes on the walk-around.
 - **Slack:** summary when an inspection is submitted (High defects tag `INSP_ALERT_CC`); 7am weekday reminder when an area is due (31 days after the last one; the first clubhouse one a week after `INSP_GO_LIVE_CLUBHOUSE`), then weekly until it's done. Settings: `INSP_EVERY_DAYS`, `INSP_REMIND`, `INSP_ALERT_CC`, `INSP_SLACK_WEBHOOK_URL` (blank = same channel as the safety reminders).
 - **Changing a checklist:** edit `docs/inspect-checklists.js` and bump that area's `version`. Item options: `photo`, `noNA`, `months`; equipment blocks: `photo`, `addable`, date `hint`. Manual runs: `setupInspections`, `previewInspectionReminder`.
+
+## Dangerous goods & hazardous substances register
+
+Part of every monthly inspection (compound section E, clubhouse section D, Amstel section H). One register per area, checked against the shelves each month.
+
+- **On the phone:** every product on that area's register is listed with *Still here* / *Gone* (Gone takes a note). *Add a product that isn't on the list* takes a label photo (or a typed name), where it's kept and how much. The step can't be finished until every product is ticked and either a product was added or *nothing else to add* is ticked.
+- **A new product:** if it has been assessed before (any area, matched by name) it goes straight on the register, or is left off if it was assessed as neither. Otherwise it shows as **Checking** until the SDS check runs: a Claude scheduled task (weekdays 1:17pm, `tasks/chem-register-sds-check.md` in Turf Data) reads the label photo, finds the Australian SDS and records dangerous goods class / UN number / packing group, hazardous substance yes or no, poison schedule, the SDS link and the basis. Dangerous good and/or hazardous substance = **On register**. Neither = taken off.
+- **Sheet tabs:** *Chem Register* (what is held now: On register or Checking), *Chem Archive* (Removed, and products assessed as neither, kept so nothing is assessed twice), *Chem Log* (every add, removal and determination, with who and which inspection).
+- **Slack:** the inspection summary carries a register line (still here / removed / new). Determinations of staff-photographed products are posted when they're made.
+- **Code:** `backend/Chem.gs`; the front end is the `register` block type in `docs/inspect-checklists.js`. API: `chemRegister&site=` (GET, public), `chemPending` and `chemAll` (GET), `chemDetermine` and `chemImport` (POST), those four with the `PRESTART_KEY`. Manual runs: `setupChemRegister`, `chemSeedFuel`.
 
 ## Contractors
 
