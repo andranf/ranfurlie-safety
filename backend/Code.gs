@@ -642,6 +642,7 @@ function doGet(e) {
     if (p.action === 'inspRecord') return json_(inspRecord_(p));
     if (p.action === 'chemRegister') return json_(chemRegister_(p));
     if (p.action === 'chemPending') return json_(chemPending_(p));
+    if (p.action === 'chemAll') return json_(chemAll_(p));
     if (p.action === 'prestartPlan') return json_(prestartPlan_(p));
     if (p.action === 'prestartPosted') return json_(prestartPosted_(p));
     if (p.action === 'prestartFlag') return json_(prestartFlag_(p));
