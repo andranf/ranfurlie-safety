@@ -640,6 +640,8 @@ function doGet(e) {
     if (p.action === 'contractors') return json_(contractorsData_(p));
     if (p.action === 'inspData') return json_(inspData_(p));
     if (p.action === 'inspRecord') return json_(inspRecord_(p));
+    if (p.action === 'chemRegister') return json_(chemRegister_(p));
+    if (p.action === 'chemPending') return json_(chemPending_(p));
     if (p.action === 'prestartPlan') return json_(prestartPlan_(p));
     if (p.action === 'prestartPosted') return json_(prestartPosted_(p));
     if (p.action === 'prestartFlag') return json_(prestartFlag_(p));
@@ -664,6 +666,8 @@ function doPost(e) {
     if (b.action === 'keyIn') return json_(keyIn_(b));
     if (b.action === 'keyLost') return json_(keyLost_(b));
     if (b.action === 'inspSubmit') return json_(inspSubmit_(b));
+    if (b.action === 'chemDetermine') return json_(chemDetermine_(b));
+    if (b.action === 'chemImport') return json_(chemImport_(b));
     if (b.action === 'conInduct') return json_(conInduct_(b));
     if (b.action === 'conIn') return json_(conIn_(b));
     if (b.action === 'conOut') return json_(conOut_(b));
@@ -2942,8 +2946,12 @@ function inspSubmit_(b) {
     });
     if (dRows.length) def.sh.getRange(def.sh.getLastRow() + 1, 1, dRows.length, def.head.length).setValues(dRows);
 
+    // Dangerous goods & hazardous substances register step (Chem.gs)
+    let chem = null;
+    try { chem = chemApply_({ b, area, name, receipt, now, savePhotos }); } catch (e) { console.warn('chem register: ' + e); }
+
     inspBust_();
-    try { inspSubmitSlack_(ctx, cfg, { name, area, areaName: mainRow['Area name'], score, yes, no, na, minutes, defs, receipt, added: wh.added }); } catch (e) { console.warn('inspection slack: ' + e); }
+    try { inspSubmitSlack_(ctx, cfg, { name, area, areaName: mainRow['Area name'], score, yes, no, na, minutes, defs, receipt, added: wh.added, chem }); } catch (e) { console.warn('inspection slack: ' + e); }
     return { ok: true, receipt, submittedAt: Utilities.formatDate(now, TZ, 'd MMM yyyy, h:mm a'), score, photoError: photoErr || undefined };
   } finally {
     lock.releaseLock();
@@ -2961,6 +2969,7 @@ function inspSubmitSlack_(ctx, cfg, x) {
   if (med || low) lines.push(':large_orange_circle: ' + [med ? med + ' medium' : '', low ? low + ' low' : ''].filter(Boolean).join(' · '));
   const fixed = x.defs.length - open.length;
   if (fixed) lines.push(':white_check_mark: ' + fixed + ' fixed on the spot');
+  if (x.chem) lines.push(':test_tube: Chemical register: ' + x.chem.here + ' still here' + (x.chem.gone ? ' \u00b7 ' + x.chem.gone + ' removed' : '') + (x.chem.names.length ? ' \u00b7 new: ' + x.chem.names.slice(0, 8).join(', ') : ''));
   if (x.added) lines.push(':new: ' + x.added + ' typed their name in, so they have been added to the Staff tab as a Guest. Check the spelling and add their role.');
   lines.push('<' + cfg.dash + '|Open the dashboard>');
   if ((high.length || x.added) && cfg.cc.length) lines.push('cc ' + cfg.cc.map(id => '<@' + id + '>').join(' '));
