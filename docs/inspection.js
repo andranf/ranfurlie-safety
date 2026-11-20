@@ -475,6 +475,7 @@
         if (b.addable) box.appendChild(withDelay(addAssetBox(sec, b), n++));
       }
       if (b.type === 'service') b.items.forEach(function (it) { box.appendChild(withDelay(serviceRow(QBY[sec.id + '.' + it.id]), n++)); });
+      if (b.type === 'register') box.appendChild(withDelay(registerBox(sec, b), n++));
     });
     if (idx === cl.sections.length - 1) box.appendChild(el('p', { class: 'muted', style: 'text-align:center;font-size:14px;margin-top:18px', text: 'Last section. Next you review the defects and sign.' }));
   }
@@ -759,6 +760,151 @@
     ]);
   }
 
+  /* ----- dangerous goods & hazardous substances register (every area; Chem.gs on the backend) */
+  function chemState() {
+    if (!S.chem) S.chem = { items: null, res: {}, notes: {}, added: [], none: false, offline: false };
+    return S.chem;
+  }
+  function chemPhotos(a) { return S.photos['chem.' + a.tid] || []; }
+  function chemDone() {
+    var c = chemState();
+    if (c.items === null) return false;
+    for (var i = 0; i < c.items.length; i++) if (!c.res[c.items[i].id]) return false;
+    for (var j = 0; j < c.added.length; j++) if (!chemPhotos(c.added[j]).length && String(c.added[j].name || '').trim().length < 2) return false;
+    return c.added.length > 0 || c.none === true;
+  }
+  function chemSummary() {
+    var c = chemState(), here = 0, gone = 0;
+    (c.items || []).forEach(function (it) { if (c.res[it.id] === 'here') here++; else if (c.res[it.id] === 'gone') gone++; });
+    return here + ' still here, ' + gone + ' gone, ' + c.added.length + ' new';
+  }
+  function chemSync(key) {
+    if (chemDone()) { setAns(key, { r: 'yes' }); return; }
+    if (S.ans[key]) delete S.ans[key];
+    touch(); save(); updateProgress();
+  }
+  function chemPayload() {
+    var has = cl.sections.some(function (s) { return s.blocks.some(function (b) { return b.type === 'register'; }); });
+    if (!has || !S.chem) return null;
+    var c = S.chem, here = [], gone = [];
+    (c.items || []).forEach(function (it) {
+      if (c.res[it.id] === 'here') here.push(it.id);
+      else if (c.res[it.id] === 'gone') gone.push({ id: it.id, note: c.notes[it.id] || '' });
+    });
+    return { here: here, gone: gone, none: !!c.none, offline: !!c.offline,
+      added: c.added.map(function (a) { return { name: String(a.name || '').trim(), where: String(a.where || '').trim(), held: String(a.held || '').trim(), photos: chemPhotos(a) }; }) };
+  }
+
+  function registerBox(sec, b) {
+    var key = sec.id + '.' + b.id;
+    var c = chemState();
+    var wrap = el('div', { class: 'chem-reg', 'data-key': key });
+    var loading = false;
+
+    function changed() { touch(); save(); chemSync(key); }
+
+    function load() {
+      loading = true; c.err = ''; paint();
+      I.get({ action: 'chemRegister', site: S.site }).then(function (res) {
+        loading = false; c.items = res.items || []; c.offline = false; paint(); changed();
+      }).catch(function (x) { loading = false; c.err = (x && x.message) || 'No signal'; paint(); });
+    }
+
+    function badge(text, cls) { return el('span', { class: 'chem-b ' + cls, text: text }); }
+
+    function itemRow(it) {
+      var r = c.res[it.id] || '';
+      var note = el('input', { type: 'text', placeholder: 'What happened to it? (used up, disposed of, moved)' });
+      note.value = c.notes[it.id] || '';
+      note.addEventListener('input', function () { c.notes[it.id] = note.value.slice(0, 200); touch(); save(); });
+      var btn = function (v, label) {
+        return el('button', { type: 'button', class: 'chem-a ' + v + (r === v ? ' on' : ''), text: label, onclick: function () { c.res[it.id] = v; changed(); paint(); } });
+      };
+      return el('div', { class: 'chem-item' + (r ? ' ' + r : '') }, [
+        el('div', { class: 'chem-top' }, [
+          el('div', { class: 'chem-name' }, [it.product,
+            el('span', { class: 'chem-sub' }, [
+              it.status === 'Checking' ? badge('Being checked', 'chk') : null,
+              it.dg ? badge('Dangerous goods' + (it.dgClass ? ' ' + it.dgClass : ''), 'dg') : null,
+              it.haz ? badge('Hazardous', 'hz') : null,
+              it.where ? el('span', { text: it.where }) : null,
+              it.held ? el('span', { text: 'up to ' + it.held }) : null
+            ])
+          ]),
+          el('div', { class: 'chem-btns' }, [btn('here', '✓ Still here'), btn('gone', 'Gone')])
+        ]),
+        r === 'gone' ? note : null
+      ]);
+    }
+
+    function addedCard(a, i) {
+      var strip = el('div', { class: 'photos' });
+      var list = chemPhotos(a);
+      list.forEach(function (src, j) {
+        strip.appendChild(el('div', { class: 'ph' }, [el('img', { src: src, alt: 'Label photo ' + (j + 1) }),
+          el('button', { type: 'button', 'aria-label': 'Remove photo', text: '×', onclick: function () { S.photos['chem.' + a.tid].splice(j, 1); changed(); paint(); } })]));
+      });
+      if (list.length < 3) strip.appendChild(el('button', { type: 'button', class: 'ph-add' + (list.length ? '' : ' need'), text: '📷 ' + (list.length ? 'Another photo' : 'Photograph the label'),
+        onclick: function () { photoTarget = { key: 'chem.' + a.tid, redraw: function () { paint(); chemSync(key); } }; $('photoIn').value = ''; $('photoIn').click(); } }));
+      var field = function (prop, ph) {
+        var inp = el('input', { type: 'text', placeholder: ph });
+        inp.value = a[prop] || '';
+        inp.addEventListener('input', function () { a[prop] = inp.value.slice(0, 120); touch(); save(); });
+        inp.addEventListener('change', function () { chemSync(key); });
+        return inp;
+      };
+      return el('div', { class: 'chem-new' }, [
+        el('div', { class: 'chem-new-h' }, [el('span', { text: 'New product ' + (i + 1) }),
+          el('button', { type: 'button', class: 'link-btn', text: 'Remove', onclick: function () { delete S.photos['chem.' + a.tid]; c.added.splice(i, 1); changed(); paint(); } })]),
+        strip,
+        el('p', { class: 'chem-hint', text: 'Front of the label, and the back or side if it shows warning symbols or a diamond.' }),
+        el('label', { text: 'Product name (if the photo doesn’t show it clearly)' }), field('name', 'e.g. Roundup Biactive'),
+        el('label', { text: 'Where is it kept?' }), field('where', 'e.g. Chemical store, shelf 2'),
+        el('label', { text: 'Roughly how much is kept here?' }), field('held', 'e.g. 2 x 20 L')
+      ]);
+    }
+
+    function paint() {
+      wrap.innerHTML = '';
+      wrap.appendChild(el('p', { class: 'chem-intro', text: (b.intro ? b.intro + ' ' : '') +
+        'Mark each product on the list, then photograph the label of anything that isn’t on it. Each photo is checked against the product’s safety data sheet: a dangerous good or hazardous substance goes on the register, anything else doesn’t.' }));
+      if (c.items === null) {
+        if (loading) { wrap.appendChild(el('p', { class: 'muted', text: 'Loading the register…' })); return; }
+        wrap.appendChild(el('p', { class: 'err', text: 'The register didn’t load' + (c.err ? ' (' + c.err + ')' : '') + '.' }));
+        wrap.appendChild(el('div', { class: 'chem-head' }, [
+          el('button', { type: 'button', class: 'btn tiny', text: 'Try again', onclick: load }),
+          el('button', { type: 'button', class: 'link-btn', text: 'Carry on without the list', onclick: function () { c.items = []; c.offline = true; changed(); paint(); } })
+        ]));
+        return;
+      }
+      if (c.items.length) {
+        var open = c.items.filter(function (it) { return !c.res[it.id]; }).length;
+        wrap.appendChild(el('div', { class: 'chem-head' }, [
+          el('span', { text: c.items.length + ' on the register for this area' + (open ? ' · ' + open + ' to mark' : '') }),
+          open > 1 ? el('button', { type: 'button', class: 'btn tiny', text: 'All the rest are still here', onclick: function () {
+            c.items.forEach(function (it) { if (!c.res[it.id]) c.res[it.id] = 'here'; }); changed(); paint(); } }) : null
+        ]));
+        c.items.forEach(function (it) { wrap.appendChild(itemRow(it)); });
+      } else {
+        wrap.appendChild(el('p', { class: 'block-note', text: c.offline ? 'Working without the list. Photograph the label of every dangerous or hazardous product you find.'
+          : 'Nothing is on the register for this area yet. Photograph the label of each product you find and the register builds from there.' }));
+      }
+      c.added.forEach(function (a, i) { wrap.appendChild(addedCard(a, i)); });
+      wrap.appendChild(el('button', { type: 'button', class: 'ph-add chem-add', text: '+ Add a product that isn’t on the list', onclick: function () {
+        c.added.push({ tid: 'n' + Date.now().toString(36), name: '', where: '', held: '' }); c.none = false; changed(); paint(); } }));
+      if (!c.added.length) {
+        var cb = el('input', { type: 'checkbox' });
+        cb.checked = !!c.none;
+        cb.addEventListener('change', function () { c.none = cb.checked; changed(); wrap.classList.toggle('done', chemDone()); });
+        wrap.appendChild(el('label', { class: 'chem-none' }, [cb, el('span', { text: 'I looked through this area and there is nothing else to add.' })]));
+      }
+      wrap.classList.toggle('done', chemDone());
+    }
+
+    if (c.items === null) load(); else paint();
+    return wrap;
+  }
+
   /* ----- an expiry date */
   function dateBox(q, inService) {
     var a = S.ans[q.key] || {};
@@ -959,7 +1105,7 @@
       var ph = r === 'no' ? [] : (S.photos[q.key] || []);
       return {
         key: q.key, sec: q.sec, kind: q.kind, label: q.label, asset: q.asset || '',
-        result: r, value: q.kind === 'text' ? (a.v || '') : (q.kind === 'date' || q.kind === 'service') && a.r !== 'na' && a.r !== 'missing' ? (a.v || '') : '',
+        result: r, value: q.register ? chemSummary() : q.kind === 'text' ? (a.v || '') : (q.kind === 'date' || q.kind === 'service') && a.r !== 'na' && a.r !== 'missing' ? (a.v || '') : '',
         last: q.kind === 'service' ? (a.last || '') : '',
         comment: r === 'no' ? defectText(q) : (q.kind === 'service' ? String(a.note || '') : ''),
         naReason: r === 'na' ? naReason(q) : '', noPhoto: photoNeed(q) && !photoCount(q.key) ? String(a.np || '') : '',
@@ -979,7 +1125,7 @@
       action: 'inspSubmit', clientId: S.clientId, site: S.site, siteName: cl.name, version: cl.version,
       name: S.inspector, newName: S.newName || '', startedAt: S.startedAt, finishedAt: new Date().toISOString(), activeMinutes: Math.max(1, Math.round((S.active || 0) / 60000)),
       counts: { yes: t.yes, no: t.no, na: t.na, total: t.total, score: t.score },
-      answers: answers, defects: defects, added: added, other: S.other || '', declare: true, declaration: DECLARATION,
+      answers: answers, defects: defects, added: added, chem: chemPayload(), other: S.other || '', declare: true, declaration: DECLARATION,
       signature: pad.png(), ua: navigator.userAgent
     };
   }
@@ -1007,7 +1153,8 @@
     });
   }
   function stripPhotos(b) {
-    return Object.assign({}, b, { defects: b.defects.map(function (d) { return Object.assign({}, d, { photos: [] }); }),
+    return Object.assign({}, b, { chem: b.chem ? Object.assign({}, b.chem, { added: b.chem.added.map(function (a) { return Object.assign({}, a, { photos: [] }); }) }) : b.chem,
+      defects: b.defects.map(function (d) { return Object.assign({}, d, { photos: [] }); }),
       answers: b.answers.map(function (a) { return Object.assign({}, a, { photos: [] }); }) });
   }
 

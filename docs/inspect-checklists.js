@@ -7,6 +7,7 @@
  *   items   - plain Yes / No / N/A lines
  *   assets  - one card per piece of equipment, each with the same checks (+ optional dates / type field)
  *   service - service & test dates read off the tag or record (last done / next due)
+ *   register - the area's dangerous goods & hazardous substances register: each product marked Still here / Gone, new ones added by label photo
  * Item / check options
  *   months: [1,4,7,10]  - only due in those months; other months default to N/A with a reason (no N/A in a due month)
  *   photo: 'what to photograph' - a photo is required when the line is answered Yes (every No needs a photo anyway)
@@ -37,7 +38,7 @@ window.INSPECT_CHECKLISTS = {
     id: 'compound',
     name: 'Maintenance compound',
     sub: 'Sheds, workshop, chemical shed, fuel bay, wash-down bay, lunchroom, compound, car park and the course lightning shelters',
-    version: '2026.11-2',
+    version: '2026.11-3',
     everyDays: 31,
     sections: [
 
@@ -202,7 +203,9 @@ window.INSPECT_CHECKLISTS = {
           { id: 'E14', text: 'Fuel emergency stop (mushroom button) identified and signed; STOP ENGINE and NO SMOKING signs in place' },
           { id: 'E15', text: 'Wash-down bay: interceptor pits not full or overflowing, grates clear, runoff contained' },
           { id: 'E16', text: 'Hazardous substances / dangerous goods register kept at the chemical shed and up to date' }
-        ] }
+        ] },
+        { type: 'register', id: 'REG', title: 'Dangerous goods & hazardous substances register',
+          intro: 'Chemical sheds, flammables cabinets, fuel bay, workshop and wash-down bay: fuel, oils, gas cylinders, aerosols, pesticides, paints, solvents and cleaners.' }
       ] },
 
       { id: 'F', title: 'Plant, machinery & storage', short: 'Plant', blocks: [
@@ -279,7 +282,7 @@ window.INSPECT_CHECKLISTS = {
     id: 'clubhouse',
     name: 'Clubhouse & driving range',
     sub: 'Clubhouse, kitchens, function rooms, pro shop, golf ops, cart store, driving range, car park and outside',
-    version: '2026.11-1',
+    version: '2026.11-2',
     everyDays: 31,
     sections: [
 
@@ -463,7 +466,9 @@ window.INSPECT_CHECKLISTS = {
           { id: 'D13', text: 'Handwash basins: hot water, soap and paper towel stocked', sub: 'RCW 2026 priority 1' },
           { id: 'D14', text: 'Floors in kitchens, bars and back of house: no grease, water or ice; mats flat; mops and brooms hung up' },
           { id: 'D15', text: 'Loading dock and kitchen door: closer works (the door doesn’t slam); dock area clear', sub: 'Crush risk on the kitchen door (risk register)' }
-        ] }
+        ] },
+        { type: 'register', id: 'REG', title: 'Dangerous goods & hazardous substances register',
+          intro: 'Cleaners’ chemical store, kitchens, bars, pro shop, golf ops workshop, cart store and range: cleaning and dishwasher chemicals, gas cylinders, aerosols, fuel, glues, paints and insect sprays.' }
       ] },
 
       { id: 'E', title: 'Driving range & golf operations', short: 'Range', where: 'Range bays, premium room, golf academy room, ball room, cart store, golf ops workshop', blocks: [
@@ -559,7 +564,7 @@ window.INSPECT_CHECKLISTS = {
     sub: 'Gaming room, bars, bistro & kids’ play, function rooms, kitchens & Airstream van, keg rooms, offices, loading dock and car parks',
     badge: 'Draft',
     address: 'The Amstel Club, 1000 Cranbourne–Frankston Rd, Cranbourne',
-    version: '2026.11-1',
+    version: '2026.11-2',
     everyDays: 31,
     sections: [
 
@@ -831,7 +836,9 @@ window.INSPECT_CHECKLISTS = {
             sub: 'RCW Sep 2026 items 7.3–7.8' },
           { id: 'H9', text: 'Paper and cardboard kept away from heaters, server equipment and other ignition sources', sub: 'RCW Sep 2026 item 8.0' },
           { id: 'H10', text: 'OUT OF SERVICE / lockout tags on hand, and anything faulty is tagged and isolated', sub: 'RCW Sep 2026: no lockout / tag-out tags, procedure or training' }
-        ] }
+        ] },
+        { type: 'register', id: 'REG', title: 'Dangerous goods & hazardous substances register',
+          intro: 'Chemical store, cleaners’ store, kitchens, bars, keg rooms, the Airstream van and plant areas: cleaning and dishwasher chemicals, beer-line cleaner, gas cylinders, aerosols and insect sprays.' }
       ] },
 
       { id: 'I', title: 'Car parks & outside', short: 'Outside', where: 'Car parks, entrances, the Snead Blvd and Augusta St frontages, backflow and gas cages, food van area', blocks: [

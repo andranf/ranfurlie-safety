@@ -89,6 +89,10 @@
           b.items.forEach(function (it) {
             out.push({ key: s.id + '.' + it.id, sec: s.id, kind: 'service', id: it.id, label: it.text, sub: it.freq + ' · ' + it.by, hint: it.hint || '' });
           });
+        } else if (b.type === 'register') {
+          // Dangerous goods & hazardous substances register: one scored line, answered Yes when the register step is finished.
+          out.push({ key: s.id + '.' + b.id, sec: s.id, kind: 'check', id: b.id, label: b.label || 'Dangerous goods and hazardous substances register checked', sub: '', months: null,
+            photo: '', noNA: true, register: true });
         }
       });
     });
